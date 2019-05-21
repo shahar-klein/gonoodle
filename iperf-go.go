@@ -184,6 +184,7 @@ func (self *connectionManager) runLoad() {
 				if self.conns[i].isActive {
 					self.conns[i].send()
 				} else if connsLeftToCreate > 0 {
+					fmt.Println("Connect")
 					self.conns[i].connect()
 					self.conns[i].send()
 					connsLeftToCreate -= 1
@@ -218,7 +219,7 @@ type Connection struct {
 }
 
 func (self *Connection) zeroCounters() {
-	fmt.Println("Sent:", self.byteSent)
+	//fmt.Println("Sent:", self.byteSent)
 	self.byteSent = 0
 }
 
@@ -272,16 +273,40 @@ type Server struct {
 func (self Server) worker() {
 	conns := []net.Conn{}
 	buf := make([]byte, 8*1024)
+	read := 0
+	var err error
+	fmt.Printf("worker: %d: \n", self.id)
 
 	for {
-		fmt.Printf("worker: %d: ", self.id)
+StartWork:
 		for i:=0; i<len(conns); i++ {
-			fmt.Printf("%d.", conns[i])
-			conns[i].Read(buf)
+			//fmt.Printf("Reading --  ")
+			read, err = conns[i].Read(buf)
+			//fmt.Println("Read:", read)
+			if read == 0 {
+				conns[i].Close()
+				conns[i] = conns[len(conns)-1]
+				conns[len(conns)-1] = nil
+				conns = conns[:len(conns)-1]
+				break
+
+			}
+			if err != nil {
+				fmt.Println("Error:", err, "Read:", read)
+
+			}
 		}
-		fmt.Printf("\n")
-		newConn := <-self.ch
-		conns = append(conns, newConn)
+		for {
+More:
+			select {
+			case newConn := <-self.ch:
+				conns = append(conns, newConn)
+				fmt.Println("new Conn:", newConn)
+				goto More
+			default:
+				goto StartWork
+			}
+		}
 	}
 
 }
@@ -310,6 +335,7 @@ func runServer(config *Config) {
 		}
 		fmt.Println("Got connected from ", conn.RemoteAddr().String())
 		servers[nextServer].ch <- conn
+		fmt.Println("sent to channel")
 		nextServer++
 		nextServer = nextServer % config.numThreads
 
