@@ -283,7 +283,23 @@ func read(s net.Conn) {
 
 	}
 }
-func runServer(config *Config) {
+
+func runUDPServer(config *Config) {
+	//net.ListenUDP(config.socketMode, &net.UDPAddr{IP:[]byte{0,0,0,0},Port:config.port,Zone:""})
+	//l, err := net.ListenUDP(config.socketMode, &net.UDPAddr{IP:[]byte{0,0,0,0},Port:config.port,Zone:""})
+	l, err := net.ListenPacket(config.socketMode, ":"+strconv.Itoa(config.port))
+
+	defer l.Close()
+
+	if err != nil {
+		fmt.Println("Error UDP: ", err.Error())
+	}
+	for {
+	}
+
+}
+
+func runTCPServer(config *Config) {
 	A := 0
 	l, err := net.Listen("tcp", ":"+strconv.Itoa(config.port))
 	if err != nil {
@@ -311,7 +327,11 @@ func main() {
 	config.dump()
 
 	if config.server {
-		runServer(config)
+		if config.socketMode == "tcp" {
+			runTCPServer(config)
+		} else {
+			runUDPServer(config)
+		}
 	} else {
 		runClient(config)
 	}
