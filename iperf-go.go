@@ -83,7 +83,6 @@ func (self *Config) parse(args []string) {
 	u := parser.Flag("u", "udp", &argparse.Options{Help: "UDP mode", Default: false})
 	p := parser.Int("p", "port", &argparse.Options{Help: "port to listen on/connect to", Required: false, Default: 10005})
 	C := parser.Int("C", "conns", &argparse.Options{Help: "Num concurrent connections", Default: 100})
-	r := parser.Int("r", "threads", &argparse.Options{Help: "Num threads to use - default(1)", Default: 1})
 	R := parser.Int("R", "ramp", &argparse.Options{Help: "Ramp up connections per second", Default: 100})
 	b := parser.String("b", "bandwidth", &argparse.Options{Help: "Banwidth per connection in kmgKMG", Default: "1m"})
 	B := parser.String("B", "total-bandwidth", &argparse.Options{Help: "Total Banwidth in kmgKMG bits. Overrides -b"})
@@ -104,14 +103,9 @@ func (self *Config) parse(args []string) {
 	}
 	self.port = *p
 	self.numConns = *C
-	self.numThreads = *r
 	self.rampRate = *R
 	if self.rampRate > self.numConns {
 		self.rampRate = self.numConns
-	}
-	self.rampRate = self.rampRate / self.numThreads
-	if self.rampRate == 0 {
-		self.rampRate = 1
 	}
 
 	// BW per conn in bytes
@@ -136,70 +130,6 @@ func (self *Config) parse(args []string) {
 
 }
 
-type connectionManager struct {
-	id		int
-	config		*Config
-	numConns	int
-	conns		[]Connection
-	secondNotOver	bool
-}
-
-func (self *connectionManager) initLoad() {
-	fmt.Println("Init:", self.id)
-	self.numConns = self.config.numConns/self.config.numThreads
-	fmt.Println("numConns:", self.numConns)
-	for i:=0; i<self.numConns; i++ {
-		c := Connection{id: i,
-				daddr: self.config.daddr,
-				dport: self.config.port,
-				byteBWPerSec: self.config.bwPerConn,
-				isActive: false,
-				socketMode: self.config.socketMode,
-				msgSize: self.config.msgSize,
-				msg: &self.config.sendBuff}
-		self.conns = append(self.conns, c)
-		fmt.Println("size conns:", len(self.conns))
-	}
-}
-
-func (self *connectionManager) runLoad() {
-	fmt.Println("RUN:", self.id, "size conns:", len(self.conns))
-	for {
-		self.secondNotOver = true
-		duration := time.Duration(1) * time.Second
-		time.AfterFunc(duration, self.secondOver)
-
-		connsLeftToCreate := self.config.rampRate
-		for i, _ := range self.conns {
-			self.conns[i].zeroCounters()
-		}
-
-		for self.secondNotOver == true {
-			for i, _ := range self.conns {
-				//fmt.Println(i, "isActive:", c.isActive)
-				if self.conns[i].isActive {
-					self.conns[i].send()
-				} else if connsLeftToCreate > 0 {
-					fmt.Println("Connect")
-					self.conns[i].connect()
-					self.conns[i].send()
-					connsLeftToCreate -= 1
-				}
-			}
-		}
-
-
-	}
-
-}
-
-func (self *connectionManager) secondOver() {
-	self.secondNotOver = false
-}
-
-func (self connectionManager) dump() {
-        fmt.Println("CM id=", self.id, "\nConfig: port:", self.config.port)
-}
 
 type Connection struct {
 	id		int
@@ -212,11 +142,7 @@ type Connection struct {
 	socketMode	string
 	msgSize		int
 	msg		*[]byte
-}
-
-func (self *Connection) zeroCounters() {
-	//fmt.Println("Sent:", self.byteSent)
-	self.byteSent = 0
+	secondNotOver	bool
 }
 
 func (self *Connection) dump() {
@@ -227,7 +153,6 @@ func (self *Connection) connect() {
 	var err error
 	fmt.Println("Connecting")
 	self.conn, err = net.Dial(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
-	//Conn, err := net.DialUDP("udp", LocalAddr, ServerAddr)
 	fmt.Println("connect:", self.id, err)
 	if err != nil {
 		fmt.Println("Error connect:", self.id, err)
@@ -237,28 +162,49 @@ func (self *Connection) connect() {
 }
 
 func (self *Connection) send() {
-	//fmt.Println("Send", self.byteSent, self.byteBWPerSec)
-	if self.byteSent < self.byteBWPerSec {
-		sent, err := self.conn.Write(*self.msg)
-		if err != nil {
-			fmt.Println("Error sent:", self.id, err)
-		} else {
-			self.byteSent += sent
+	ticker := time.NewTicker(1000 * time.Millisecond)
+	for range ticker.C {
+		self.byteSent = 0
+		for self.byteSent < self.byteBWPerSec {
+			sent, err := self.conn.Write(*self.msg)
+			if err != nil {
+				fmt.Println("Error sent:", self.id, err)
+			} else {
+				self.byteSent += sent
+			}
 		}
 	}
 }
 
 
-func runClient(config *Config) {
-	CM := []connectionManager{}
-	for i:=0; i<config.numThreads; i++ {
-		cm := connectionManager{id: i, config: config}
-		CM = append(CM, cm)
-		cm.initLoad()
-		go cm.runLoad()
-	}
+func (self *Connection) run() {
+	self.connect()
+	fmt.Println("RUN:", self.id)
+	self.send()
 }
 
+func runClient(config *Config) {
+	ticker := time.NewTicker(1000 * time.Millisecond)
+	created := 0
+	for t := range ticker.C {
+		if created >= config.numConns {
+			break
+		}
+		fmt.Println("Tick at", t)
+		for i:=0; i<config.rampRate; i++ {
+			c := Connection{id: i,
+				daddr: config.daddr,
+				dport: config.port,
+				byteBWPerSec: config.bwPerConn,
+				isActive: false,
+				socketMode: config.socketMode,
+				msgSize: config.msgSize,
+				msg: &config.sendBuff}
+			created++
+			go c.run()
+	    }
+        }
+}
 
 type Server struct {
 	id		int
