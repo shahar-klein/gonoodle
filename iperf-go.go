@@ -148,7 +148,6 @@ func (self *connectionManager) initLoad() {
 	fmt.Println("Init:", self.id)
 	self.numConns = self.config.numConns/self.config.numThreads
 	fmt.Println("numConns:", self.numConns)
-	//self.conns = make([]Connection, self.numConns)
 	for i:=0; i<self.numConns; i++ {
 		c := Connection{id: i,
 				daddr: self.config.daddr,
@@ -164,9 +163,6 @@ func (self *connectionManager) initLoad() {
 }
 
 func (self *connectionManager) runLoad() {
-	//fmt.Println("RUN:", self.id)
-	//time.Sleep(time.Microsecond * 2000000)
-	//fmt.Println("Done:", self.id)
 	fmt.Println("RUN:", self.id, "size conns:", len(self.conns))
 	for {
 		self.secondNotOver = true
@@ -238,7 +234,6 @@ func (self *Connection) connect() {
 		os.Exit(1)
 	}
 	self.isActive = true
-	fmt.Println("setting: isActive", self.isActive)
 }
 
 func (self *Connection) send() {
@@ -270,48 +265,26 @@ type Server struct {
 	ch		chan net.Conn
 }
 
-func (self Server) worker() {
-	conns := []net.Conn{}
-	buf := make([]byte, 8*1024)
-	read := 0
+func read(s net.Conn) {
+	fmt.Println("in Read:")
 	var err error
-	fmt.Printf("worker: %d: \n", self.id)
-
+	read := 0
+	buf := make([]byte, 8*1024)
 	for {
-StartWork:
-		for i:=0; i<len(conns); i++ {
-			//fmt.Printf("Reading --  ")
-			read, err = conns[i].Read(buf)
-			//fmt.Println("Read:", read)
-			if read == 0 {
-				conns[i].Close()
-				conns[i] = conns[len(conns)-1]
-				conns[len(conns)-1] = nil
-				conns = conns[:len(conns)-1]
-				break
-
-			}
-			if err != nil {
-				fmt.Println("Error:", err, "Read:", read)
-
-			}
+		read, err = s.Read(buf)
+		if read == 0 {
+			s.Close()
+			break
 		}
-		for {
-More:
-			select {
-			case newConn := <-self.ch:
-				conns = append(conns, newConn)
-				fmt.Println("new Conn:", newConn)
-				goto More
-			default:
-				goto StartWork
-			}
+		if err != nil {
+			fmt.Println("Error:", err, "Read:", read)
+
 		}
+
 	}
-
 }
-
 func runServer(config *Config) {
+	A := 0
 	l, err := net.Listen("tcp", ":"+strconv.Itoa(config.port))
 	if err != nil {
 		fmt.Println("Error listening:", err.Error())
@@ -319,30 +292,17 @@ func runServer(config *Config) {
 	}
 	defer l.Close()
 
-	servers := []Server{}
-	nextServer := 0
-	for i:=0; i<config.numThreads; i++ {
-		s := Server{id: i, ch: make(chan net.Conn)}
-		servers = append(servers, s)
-		go s.worker()
-	}
-
 	for {
+		A++
 		conn, err := l.Accept()
 		if err != nil {
 			fmt.Println("Error accepting: ", err.Error())
 			os.Exit(1)
 		}
-		fmt.Println("Got connected from ", conn.RemoteAddr().String())
-		servers[nextServer].ch <- conn
-		fmt.Println("sent to channel")
-		nextServer++
-		nextServer = nextServer % config.numThreads
-
-
+		fmt.Println(A, "Got connected from ", conn.RemoteAddr().String())
+		go read(conn)
 	}
 }
-
 
 func main() {
 
@@ -356,39 +316,5 @@ func main() {
 		runClient(config)
 	}
 
-	//var wg sync.WaitGroup
-
-
-	//wg.Add(1)
-	//wg.Wait()
-
 	select{}
-
-
-
-
-
-/*
-func main() {
-	fmt.Printf("hello, world\n")
-	conn, err := net.Dial("udp", "127.0.0.1:1234")
-	if err != nil {
-        	fmt.Printf("Some error %v", err)
-        	return
-    	}
-	b := make([]byte, 1000)
-  	for i := range b {
-    		b[i] = charset[seededRand.Intn(len(charset))]
-  	} 
-    	for {
-		//msg := strconv.Itoa(i)
-        	//i++
-        	//buf := []byte(msg)
-        	conn.Write(b)
-        	//if err != nil {
-            	//	fmt.Println("ERROR:", err)
-        	//}
-        	//time.Sleep(time.Microsecond * 10000)
-    	}
-*/
 }
