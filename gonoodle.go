@@ -71,6 +71,7 @@ type Config struct {
 	numThreads	int
 	bwPerConn	int
 	msgSize		int
+	timeToRun	int
 	sendBuff	[]byte
 }
 
@@ -91,11 +92,14 @@ func (self *Config) parse(args []string) {
 	b := parser.String("b", "bandwidth", &argparse.Options{Help: "Banwidth per connection in kmgKMG", Default: "1m"})
 	B := parser.String("B", "total-bandwidth", &argparse.Options{Help: "Total Banwidth in kmgKMG bits. Overrides -b"})
 	l := parser.Int("l", "msg size", &argparse.Options{Help: "length(in bytes) of buffer in bytes to read or write", Default: 1440})
+	t := parser.Int("t", "time", &argparse.Options{Help: "time in seconds to transmit", Default: 10})
 
 	err := parser.Parse(args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
 	}
+
+	self.timeToRun = *t
 
 	//if strings.ContainsAny(*L, ":")
 	lAddr := strings.Split(*L, ":")
@@ -322,5 +326,9 @@ func main() {
 		runClient(config)
 	}
 
-	select {}
+	select {
+	case <-time.After(time.Duration(config.timeToRun) * time.Second):
+		fmt.Println("Done.")
+		break
+	}
 }
