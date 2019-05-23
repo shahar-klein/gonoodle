@@ -82,7 +82,7 @@ func (self *Config) parse(args []string) {
 	c := parser.String("c", "client", &argparse.Options{Help: "Client mode"})
 	u := parser.Flag("u", "udp", &argparse.Options{Help: "UDP mode", Default: false})
 	p := parser.Int("p", "port", &argparse.Options{Help: "port to listen on/connect to", Required: false, Default: 10005})
-	C := parser.Int("C", "conns", &argparse.Options{Help: "Num concurrent connections", Default: 100})
+	P := parser.Int("P", "conns", &argparse.Options{Help: "number of parallel connections to run", Default: 100})
 	R := parser.Int("R", "ramp", &argparse.Options{Help: "Ramp up connections per second", Default: 100})
 	b := parser.String("b", "bandwidth", &argparse.Options{Help: "Banwidth per connection in kmgKMG", Default: "1m"})
 	B := parser.String("B", "total-bandwidth", &argparse.Options{Help: "Total Banwidth in kmgKMG bits. Overrides -b"})
@@ -102,7 +102,7 @@ func (self *Config) parse(args []string) {
 		self.socketMode = "udp"
 	}
 	self.port = *p
-	self.numConns = *C
+	self.numConns = *P
 	self.rampRate = *R
 	if self.rampRate > self.numConns {
 		self.rampRate = self.numConns
@@ -186,11 +186,11 @@ func (self *Connection) run() {
 func runClient(config *Config) {
 	ticker := time.NewTicker(1000 * time.Millisecond)
 	created := 0
-	for t := range ticker.C {
+	for range ticker.C {
 		if created >= config.numConns {
+			// good position to collect stats
 			break
 		}
-		fmt.Println("Tick at", t)
 		for i:=0; i<config.rampRate; i++ {
 			c := Connection{id: i,
 				daddr: config.daddr,
@@ -282,5 +282,5 @@ func main() {
 		runClient(config)
 	}
 
-	select{}
+	select {}
 }
