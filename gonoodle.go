@@ -2,13 +2,13 @@ package main
 /*
 TODO: 
 	burst
-	Local address 
-        global send buff?
+	pps
         raw packet
         time to run
         time to run per session
-        serve epoll?
+        serve epoll? not sure I need it in go.
         adaptive send over second
+	specific output device
         mixed sessions
 
 */
@@ -60,9 +60,12 @@ var seededRand *rand.Rand = rand.New(
 
 type Config struct {
 	daddr		string
+	saddr		string
 	server		bool
 	socketMode	string
+	lPort		int
 	port		int
+	sport		int
 	numConns	int
 	rampRate	int // per thread
 	numThreads	int
@@ -79,10 +82,11 @@ func (self Config) dump() {
 func (self *Config) parse(args []string) {
 	parser := argparse.NewParser("Noodle", "iperf with goodies")
 	s := parser.Flag("s", "server", &argparse.Options{Help: "Server mode"})
-	c := parser.String("c", "client", &argparse.Options{Help: "Client mode"})
+	c := parser.String("c", "client", &argparse.Options{Help: "<host> Client mode"})
 	u := parser.Flag("u", "udp", &argparse.Options{Help: "UDP mode", Default: false})
 	p := parser.Int("p", "port", &argparse.Options{Help: "port to listen on/connect to", Required: false, Default: 10005})
-	P := parser.Int("P", "conns", &argparse.Options{Help: "number of parallel connections to run", Default: 100})
+	L := parser.String("L", "local", &argparse.Options{Help: "[ip | ip:port ] Local address to bind as the first port, use 0:port for start port", Default: "0:0"})
+	C := parser.Int("C", "conns", &argparse.Options{Help: "number of concurrent connections to run", Default: 100})
 	R := parser.Int("R", "ramp", &argparse.Options{Help: "Ramp up connections per second", Default: 100})
 	b := parser.String("b", "bandwidth", &argparse.Options{Help: "Banwidth per connection in kmgKMG", Default: "1m"})
 	B := parser.String("B", "total-bandwidth", &argparse.Options{Help: "Total Banwidth in kmgKMG bits. Overrides -b"})
@@ -91,6 +95,26 @@ func (self *Config) parse(args []string) {
 	err := parser.Parse(args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
+	}
+
+	//if strings.ContainsAny(*L, ":")
+	lAddr := strings.Split(*L, ":")
+	if len(lAddr) == 1 {
+		//address only
+		self.saddr = lAddr[0]
+	} else { //A:P or :P
+		if lAddr[0] == "" { //:P
+			self.saddr = "0"
+		} else {
+			self.saddr = lAddr[0]
+		}
+		self.sport, err = strconv.Atoi(lAddr[1])
+		if err != nil {
+			fmt.Println("Error parsing local port")
+			fmt.Print(parser.Usage(err))
+			os.Exit(1)
+		}
+
 	}
 
 	if *s == true {
@@ -102,7 +126,7 @@ func (self *Config) parse(args []string) {
 		self.socketMode = "udp"
 	}
 	self.port = *p
-	self.numConns = *P
+	self.numConns = *C
 	self.rampRate = *R
 	if self.rampRate > self.numConns {
 		self.rampRate = self.numConns
@@ -135,7 +159,9 @@ type Connection struct {
 	id		int
 	conn		net.Conn
 	daddr		string
+	saddr		string
 	dport		int
+	sport		int
 	byteSent	int
 	byteBWPerSec	int
 	isActive	bool
@@ -152,12 +178,20 @@ func (self *Connection) dump() {
 func (self *Connection) connect() {
 	var err error
 	fmt.Println("Connecting")
-	self.conn, err = net.Dial(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
-	fmt.Println("connect:", self.id, err)
+	if self.socketMode == "tcp" {
+		dAddr, _  := net.ResolveTCPAddr(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
+		sAddr, _  := net.ResolveTCPAddr(self.socketMode, net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)))
+		self.conn, err = net.DialTCP(self.socketMode, sAddr, dAddr)
+	} else {
+		dAddr, _ := net.ResolveUDPAddr(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
+		sAddr, _ := net.ResolveUDPAddr(self.socketMode, net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)))
+		self.conn, err = net.DialUDP(self.socketMode, sAddr, dAddr)
+	}
 	if err != nil {
 		fmt.Println("Error connect:", self.id, err)
 		os.Exit(1)
 	}
+	fmt.Println("connect:", self.id, err)
 	self.isActive = true
 }
 
@@ -186,6 +220,7 @@ func (self *Connection) run() {
 func runClient(config *Config) {
 	ticker := time.NewTicker(1000 * time.Millisecond)
 	created := 0
+	sPort := config.sport
 	for range ticker.C {
 		if created >= config.numConns {
 			// good position to collect stats
@@ -195,12 +230,17 @@ func runClient(config *Config) {
 			c := Connection{id: i,
 				daddr: config.daddr,
 				dport: config.port,
+				sport: sPort,
+				saddr: config.saddr,
 				byteBWPerSec: config.bwPerConn,
 				isActive: false,
 				socketMode: config.socketMode,
 				msgSize: config.msgSize,
 				msg: &config.sendBuff}
 			created++
+			if sPort != 0 {
+				sPort++
+			}
 			go c.run()
 	    }
         }
