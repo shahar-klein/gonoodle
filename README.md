@@ -1,7 +1,7 @@
 noodle is a basic iperf like load tool with some goodies like bw throttle per session
 and session ramp up throttle
 
-
+```
 usage: Noodle [-h|--help] [-s|--server] [-c|--client "<value>"] [-u|--udp]
               [-p|--port <integer>] [-L|--local "<value>"] [-C|--conns
               <integer>] [-R|--ramp <integer>] [-b|--bandwidth "<value>"]
@@ -29,3 +29,4 @@ Arguments:
   -T  --stime            session time in seconds. After T seconds the session
                          closes and re-opens immediately. 0 means don't close
                          till the process ends. Default: 0
+```
