@@ -72,12 +72,13 @@ type Config struct {
 	bwPerConn	int
 	msgSize		int
 	timeToRun	int
+	sessionTime	int
 	sendBuff	[]byte
 }
 
 func (self Config) dump() {
 	fmt.Println("Config:", "server:", self.server, "\nclient:", self.daddr, "\nport:", self.port, "\nnum ports:", self.numConns,
-			"\nRamp:", self.rampRate, "\nnum threads:", self.numThreads, "\nBW per conn:", self.bwPerConn, "\nmsg size:", self.msgSize)
+			"\nRamp:", self.rampRate, "\nnum threads:", self.numThreads, "\nBW per conn:", self.bwPerConn, "\nmsg size:", self.msgSize, "\nsTime:", self.sessionTime)
 }
 
 func (self *Config) parse(args []string) {
@@ -93,6 +94,7 @@ func (self *Config) parse(args []string) {
 	B := parser.String("B", "total-bandwidth", &argparse.Options{Help: "Total Banwidth in kmgKMG bits. Overrides -b"})
 	l := parser.Int("l", "msg size", &argparse.Options{Help: "length(in bytes) of buffer in bytes to read or write", Default: 1440})
 	t := parser.Int("t", "time", &argparse.Options{Help: "time in seconds to transmit", Default: 10})
+	T := parser.Int("T", "stime", &argparse.Options{Help: "session time in seconds. After T seconds the session closes and re-opens immediately. 0 means don't close till the process ends", Default: 0})
 
 	err := parser.Parse(args)
 	if err != nil {
@@ -100,6 +102,7 @@ func (self *Config) parse(args []string) {
 	}
 
 	self.timeToRun = *t
+	self.sessionTime = *T
 
 	//if strings.ContainsAny(*L, ":")
 	lAddr := strings.Split(*L, ":")
@@ -173,6 +176,7 @@ type Connection struct {
 	msgSize		int
 	msg		*[]byte
 	secondNotOver	bool
+	sessionTime	int
 }
 
 func (self *Connection) dump() {
@@ -186,6 +190,8 @@ func (self *Connection) connect() {
 		dAddr, _  := net.ResolveTCPAddr(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
 		sAddr, _  := net.ResolveTCPAddr(self.socketMode, net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)))
 		self.conn, err = net.DialTCP(self.socketMode, sAddr, dAddr)
+		self.conn.(*net.TCPConn).SetLinger(0)
+		self.conn.(*net.TCPConn).SetNoDelay(true)
 	} else {
 		dAddr, _ := net.ResolveUDPAddr(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
 		sAddr, _ := net.ResolveUDPAddr(self.socketMode, net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)))
@@ -199,26 +205,46 @@ func (self *Connection) connect() {
 	self.isActive = true
 }
 
-func (self *Connection) send() {
+func (self *Connection) send(done chan bool) {
 	ticker := time.NewTicker(1000 * time.Millisecond)
-	for range ticker.C {
-		self.byteSent = 0
-		for self.byteSent < self.byteBWPerSec {
-			sent, err := self.conn.Write(*self.msg)
-			if err != nil {
-				fmt.Println("Error sent:", self.id, err)
-			} else {
-				self.byteSent += sent
+	for {
+		select {
+		case <-ticker.C:
+			self.byteSent = 0
+			for self.byteSent < self.byteBWPerSec {
+				sent, err := self.conn.Write(*self.msg)
+				if err != nil {
+					fmt.Println("Error sent:", self.id, err)
+				} else {
+					self.byteSent += sent
+				}
 			}
+		case <-done:
+			fmt.Println("done")
+			self.conn.Close()
+			return
 		}
 	}
 }
 
 
 func (self *Connection) run() {
-	self.connect()
-	fmt.Println("RUN:", self.id)
-	self.send()
+	for {
+		done := make(chan bool)
+		self.connect()
+		fmt.Println("RUN:", self.id, "stime:", self.sessionTime)
+		go self.send(done)
+		if self.sessionTime > 0 {
+			time.Sleep(time.Duration(self.sessionTime) * time.Second)
+			fmt.Println("Send done")
+			done <- true
+		} else {
+			select{}
+		}
+		// give it some time to close
+		time.Sleep(100*time.Millisecond)
+
+	}
 }
 
 func runClient(config *Config) {
@@ -231,7 +257,7 @@ func runClient(config *Config) {
 			break
 		}
 		for i:=0; i<config.rampRate; i++ {
-			c := Connection{id: i,
+			c := Connection{id: created,
 				daddr: config.daddr,
 				dport: config.port,
 				sport: sPort,
@@ -240,6 +266,7 @@ func runClient(config *Config) {
 				isActive: false,
 				socketMode: config.socketMode,
 				msgSize: config.msgSize,
+				sessionTime: config.sessionTime,
 				msg: &config.sendBuff}
 			created++
 			if sPort != 0 {
