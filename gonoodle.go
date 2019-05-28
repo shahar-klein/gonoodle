@@ -32,10 +32,12 @@ const charset = "abcdefghijklmnopqrstuvwxyz" +
 func stringToBytes(s string) (int) {
 
 	unit := s[len(s)-1:]
+	numS := ""
 	if  ! strings.Contains("kmgKMG", unit) {
-		fmt.Println("Error parsing bandwidth, no unit")
+		numS = s
+	} else {
+		numS = s[:len(s)-1]
 	}
-	numS := s[:len(s)-1]
 	f := 1
 	switch {
                 case unit == "k" || unit == "K":
@@ -142,7 +144,7 @@ func (self *Config) parse(args []string) {
 	// BW per conn in bytes
 	self.bwPerConn = stringToBytes(*b)
 	// -B overides -b
-	if strings.ContainsAny(*B, "kmgKMG") {
+	if *B != "" {
 		totalBW := stringToBytes(*B)
 		self.bwPerConn = totalBW/self.numConns
 	}
