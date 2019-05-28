@@ -76,7 +76,7 @@ type Config struct {
 	timeToRun	int
 	sessionTime	int
 	sendBuff	[]byte
-	rpMode		bool
+	rpMode		string
 }
 
 func (self *Config) dump() {
@@ -98,7 +98,7 @@ func (self *Config) parse(args []string) {
 	B := parser.String("B", "total-bandwidth", &argparse.Options{Help: "Total Banwidth in kmgKMG bits. Overrides -b"})
 	l := parser.Int("l", "msg size", &argparse.Options{Help: "length(in bytes) of buffer in bytes to read or write", Default: 1440})
 	t := parser.Int("t", "time", &argparse.Options{Help: "time in seconds to transmit", Default: 10})
-	RP := parser.Flag("", "rp", &argparse.Options{Help: "RP mode, UDP only", Default: false})
+	RP := parser.String("", "rp", &argparse.Options{Help: "RP mode <loader|initiator>, UDP only"})
 	T := parser.Int("T", "stime", &argparse.Options{Help: "session time in seconds. After T seconds the session closes and re-opens immediately. 0 means don't close till the process ends", Default: 0})
 
 
@@ -143,12 +143,10 @@ func (self *Config) parse(args []string) {
 		self.socketMode = "udp"
 	}
 
-	self.rpMode = false
-	if *RP == true {
-		self.rpMode = true
-	}
-	if (self.rpMode == true) && (self.socketMode != "udp") {
-		fmt.Println("\n\nError: RP mode can only run with UDP.\n")
+	self.rpMode = *RP
+
+	if self.rpMode != "" && self.socketMode != "udp" {
+		fmt.Println("\n\nError: RP mode can run in UDP only\n")
 		os.Exit(1)
 	}
 
@@ -167,6 +165,9 @@ func (self *Config) parse(args []string) {
 		self.bwPerConn = totalBW/self.numConns
 	}
 	self.bwPerConn /= 8
+	if self.bwPerConn < 1 {
+		self.bwPerConn = 1
+	}
 
 	self.msgSize = *l
 	// be polite
@@ -197,7 +198,7 @@ type Connection struct {
 	msg		*[]byte
 	secondNotOver	bool
 	sessionTime	int
-	rpMode		bool
+	rpMode		string
 }
 
 func (self *Connection) dump() {
@@ -206,7 +207,6 @@ func (self *Connection) dump() {
 
 func (self *Connection) connect() {
 	var err error
-	fmt.Println("Connecting")
 	if self.socketMode == "tcp" {
 		dAddr, _  := net.ResolveTCPAddr(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
 		sAddr, _  := net.ResolveTCPAddr(self.socketMode, net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)))
@@ -217,12 +217,12 @@ func (self *Connection) connect() {
 		dAddr, _ := net.ResolveUDPAddr(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
 		sAddr, _ := net.ResolveUDPAddr(self.socketMode, net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)))
 		self.conn, err = net.DialUDP(self.socketMode, sAddr, dAddr)
+
 	}
 	if err != nil {
 		fmt.Println("Error connect:", self.id, err)
 		os.Exit(1)
 	}
-	fmt.Println("connect:", self.id, err)
 	self.isActive = true
 }
 
@@ -253,16 +253,17 @@ func (self *Connection) run() {
 	for {
 		done := make(chan bool)
 		self.connect()
-		fmt.Println("RUN:", self.id, "stime:", self.sessionTime)
 
-		if self.rpMode == true {
-			fmt.Println("Waiting")
+		if self.rpMode == "loader" {
 			buffer := make([]byte, 100)
+			self.conn.(*net.UDPConn).ReadFrom(buffer)
+			/*
 			nRead, addr, err := self.conn.(*net.UDPConn).ReadFrom(buffer)
 			if err != nil {
 				fmt.Println("Error Read:", err)
 			}
 			fmt.Println("Got read from", addr, "read:", nRead)
+			*/
 		}
 
 		go self.send(done)
@@ -283,6 +284,7 @@ func runClient(config *Config) {
 	ticker := time.NewTicker(1000 * time.Millisecond)
 	created := 0
 	sPort := config.sport
+	dPort := config.port
 	for range ticker.C {
 		if created >= config.numConns {
 			// good position to collect stats
@@ -291,7 +293,7 @@ func runClient(config *Config) {
 		for i:=0; i<config.rampRate; i++ {
 			c := Connection{id: created,
 				daddr: config.daddr,
-				dport: config.port,
+				dport: dPort,
 				sport: sPort,
 				saddr: config.saddr,
 				byteBWPerSec: config.bwPerConn,
@@ -304,6 +306,9 @@ func runClient(config *Config) {
 			created++
 			if sPort != 0 {
 				sPort++
+			}
+			if config.rpMode != "" {
+				dPort++
 			}
 			go c.run()
 	    }
