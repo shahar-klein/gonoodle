@@ -112,7 +112,6 @@ func (self *Config) parse(args []string) {
 	self.timeToRun = *t
 	self.sessionTime = *T
 
-	//if strings.ContainsAny(*L, ":")
 	lAddr := strings.Split(*L, ":")
 	if len(lAddr) == 1 {
 		//address only
