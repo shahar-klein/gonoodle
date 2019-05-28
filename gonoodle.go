@@ -76,11 +76,13 @@ type Config struct {
 	timeToRun	int
 	sessionTime	int
 	sendBuff	[]byte
+	rpMode		bool
 }
 
-func (self Config) dump() {
+func (self *Config) dump() {
 	fmt.Println("Config:", "server:", self.server, "\nclient:", self.daddr, "\nport:", self.port, "\nnum ports:", self.numConns,
-			"\nRamp:", self.rampRate, "\nnum threads:", self.numThreads, "\nBW per conn:", self.bwPerConn, "\nmsg size:", self.msgSize, "\nsTime:", self.sessionTime)
+			"\nRamp:", self.rampRate, "\nnum threads:", self.numThreads, "\nBW per conn:", self.bwPerConn, "\nmsg size:", self.msgSize, "\nsTime:", self.sessionTime,
+			"\nrpMode:", self.rpMode, "\nUDP:", self.socketMode)
 }
 
 func (self *Config) parse(args []string) {
@@ -96,11 +98,15 @@ func (self *Config) parse(args []string) {
 	B := parser.String("B", "total-bandwidth", &argparse.Options{Help: "Total Banwidth in kmgKMG bits. Overrides -b"})
 	l := parser.Int("l", "msg size", &argparse.Options{Help: "length(in bytes) of buffer in bytes to read or write", Default: 1440})
 	t := parser.Int("t", "time", &argparse.Options{Help: "time in seconds to transmit", Default: 10})
+	RP := parser.Flag("", "rp", &argparse.Options{Help: "RP mode, UDP only", Default: false})
 	T := parser.Int("T", "stime", &argparse.Options{Help: "session time in seconds. After T seconds the session closes and re-opens immediately. 0 means don't close till the process ends", Default: 0})
+
+
 
 	err := parser.Parse(args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
+		os.Exit(1)
 	}
 
 	self.timeToRun = *t
@@ -130,10 +136,22 @@ func (self *Config) parse(args []string) {
 		self.server = true
 	}
 	self.daddr = *c
+
+
 	self.socketMode = "tcp"
 	if *u == true {
 		self.socketMode = "udp"
 	}
+
+	self.rpMode = false
+	if *RP == true {
+		self.rpMode = true
+	}
+	if (self.rpMode == true) && (self.socketMode != "udp") {
+		fmt.Println("\n\nError: RP mode can only run with UDP.\n")
+		os.Exit(1)
+	}
+
 	self.port = *p
 	self.numConns = *C
 	self.rampRate = *R
@@ -179,6 +197,7 @@ type Connection struct {
 	msg		*[]byte
 	secondNotOver	bool
 	sessionTime	int
+	rpMode		bool
 }
 
 func (self *Connection) dump() {
@@ -235,6 +254,17 @@ func (self *Connection) run() {
 		done := make(chan bool)
 		self.connect()
 		fmt.Println("RUN:", self.id, "stime:", self.sessionTime)
+
+		if self.rpMode == true {
+			fmt.Println("Waiting")
+			buffer := make([]byte, 100)
+			nRead, addr, err := self.conn.(*net.UDPConn).ReadFrom(buffer)
+			if err != nil {
+				fmt.Println("Error Read:", err)
+			}
+			fmt.Println("Got read from", addr, "read:", nRead)
+		}
+
 		go self.send(done)
 		if self.sessionTime > 0 {
 			time.Sleep(time.Duration(self.sessionTime) * time.Second)
@@ -269,6 +299,7 @@ func runClient(config *Config) {
 				socketMode: config.socketMode,
 				msgSize: config.msgSize,
 				sessionTime: config.sessionTime,
+				rpMode: config.rpMode,
 				msg: &config.sendBuff}
 			created++
 			if sPort != 0 {
