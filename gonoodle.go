@@ -72,6 +72,8 @@ type Config struct {
 	rampRate	int // per thread
 	numThreads	int
 	bwPerConn	int
+	bwPerConnLo	int
+	bwPerConnHi	int
 	msgSize		int
 	timeToRun	int
 	sessionTime	int
@@ -96,6 +98,7 @@ func (self *Config) parse(args []string) {
 	R := parser.Int("R", "ramp", &argparse.Options{Help: "Ramp up connections per second", Default: 100})
 	b := parser.String("b", "bandwidth", &argparse.Options{Help: "Banwidth per connection in kmgKMG", Default: "1m"})
 	B := parser.String("B", "total-bandwidth", &argparse.Options{Help: "Total Banwidth in kmgKMG bits. Overrides -b"})
+	r := parser.String("r", "burst", &argparse.Options{Help: "burst in percentage from avarage low:high", Default: "100:100"})
 	l := parser.Int("l", "msg size", &argparse.Options{Help: "length(in bytes) of buffer in bytes to read or write", Default: 1440})
 	t := parser.Int("t", "time", &argparse.Options{Help: "time in seconds to transmit", Default: 10})
 	RP := parser.String("", "rp", &argparse.Options{Help: "RP mode <loader|initiator>, UDP only"})
@@ -168,6 +171,28 @@ func (self *Config) parse(args []string) {
 		self.bwPerConn = 1
 	}
 
+	low, err := strconv.Atoi(strings.Split(*r, ":")[0])
+	if err != nil {
+		fmt.Println("Error parsing burst numbers")
+		os.Exit(11)
+	}
+	high, err := strconv.Atoi(strings.Split(*r, ":")[1])
+	if err != nil {
+		fmt.Println("Error parsing burst numbers")
+		os.Exit(11)
+	}
+	fmt.Println("High:", high, "Low:", low, err)
+	if low > 100 {
+		fmt.Println("Low burst should be less than 100")
+		os.Exit(11)
+	}
+	if high < 100 {
+		fmt.Println("high burst should be more than 100")
+		os.Exit(11)
+	}
+	self.bwPerConnHi = int(float64(self.bwPerConn)*float64(high)/100)
+	self.bwPerConnLo = int(float64(self.bwPerConn)*float64(low)/100)
+
 	self.msgSize = *l
 	// be polite
 	if self.msgSize > self.bwPerConn {
@@ -191,6 +216,8 @@ type Connection struct {
 	sport		int
 	byteSent	int
 	byteBWPerSec	int
+	byteBWPerSecLo	int
+	byteBWPerSecHi	int
 	isActive	bool
 	socketMode	string
 	msgSize		int
@@ -206,6 +233,8 @@ func (self *Connection) dump() {
 
 func (self *Connection) connect() {
 	var err error
+	//fmt.Println("Connection: Low:", self.byteBWPerSecLo, "high:", self.byteBWPerSecHi)
+
 	if self.socketMode == "tcp" {
 		dAddr, _  := net.ResolveTCPAddr(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
 		sAddr, _  := net.ResolveTCPAddr(self.socketMode, net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)))
@@ -231,7 +260,8 @@ func (self *Connection) send(done chan bool) {
 		select {
 		case <-ticker.C:
 			self.byteSent = 0
-			for self.byteSent < self.byteBWPerSec {
+			bytesTosend := seededRand.Intn(self.byteBWPerSecHi-self.byteBWPerSecLo+1) + self.byteBWPerSecLo
+			for self.byteSent < bytesTosend {
 				sent, err := self.conn.Write(*self.msg)
 				if err != nil {
 					fmt.Println("Error sent:", self.id, err)
@@ -239,6 +269,7 @@ func (self *Connection) send(done chan bool) {
 					self.byteSent += sent
 				}
 			}
+			//fmt.Println("Sent:", self.byteSent, bytesTosend)
 		case <-done:
 			fmt.Println("done")
 			self.conn.Close()
@@ -296,6 +327,8 @@ func runClient(config *Config) {
 				sport: sPort,
 				saddr: config.saddr,
 				byteBWPerSec: config.bwPerConn,
+				byteBWPerSecLo: config.bwPerConnLo,
+				byteBWPerSecHi: config.bwPerConnHi,
 				isActive: false,
 				socketMode: config.socketMode,
 				msgSize: config.msgSize,
