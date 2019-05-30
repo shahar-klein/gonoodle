@@ -2,11 +2,13 @@ noodle is a basic iperf like load tool with some goodies like bw throttle per se
 and session ramp up throttle
 
 ```
+
 usage: Noodle [-h|--help] [-s|--server] [-c|--client "<value>"] [-u|--udp]
               [-p|--port <integer>] [-L|--local "<value>"] [-C|--conns
               <integer>] [-R|--ramp <integer>] [-b|--bandwidth "<value>"]
-              [-B|--total-bandwidth "<value>"] [-l|--msg size <integer>]
-              [-t|--time <integer>] [-T|--stime <integer>]
+              [-B|--total-bandwidth "<value>"] [-r|--burst "<value>"] [-l|--msg
+              size <integer>] [-t|--time <integer>] [-M|--cms <integer>]
+              [--rp "<value>"] [-T|--stime <integer>]
 
               iperf with goodies
 
@@ -23,9 +25,13 @@ Arguments:
   -R  --ramp             Ramp up connections per second. Default: 100
   -b  --bandwidth        Banwidth per connection in kmgKMG. Default: 1m
   -B  --total-bandwidth  Total Banwidth in kmgKMG bits. Overrides -b
+  -r  --burst            burst in percentage from avarage low:high. Default:
+                         100:100
   -l  --msg size         length(in bytes) of buffer in bytes to read or write.
                          Default: 1440
   -t  --time             time in seconds to transmit. Default: 10
+  -M  --cms              number of connection managers. Default: 0
+      --rp               RP mode <loader|initiator>, UDP only
   -T  --stime            session time in seconds. After T seconds the session
                          closes and re-opens immediately. 0 means don't close
                          till the process ends. Default: 0

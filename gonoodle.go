@@ -22,6 +22,7 @@ import (
 	"os"
 	"strings"
 	"strconv"
+	"runtime"
 )
 
 const charset = "abcdefghijklmnopqrstuvwxyz" +
@@ -69,7 +70,9 @@ type Config struct {
 	port		int
 	sport		int
 	numConns	int
-	rampRate	int // per thread
+	numCM		int
+	numConnsCM	int // sessions per CM
+	rampRate	int // per CM
 	numThreads	int
 	bwPerConn	int
 	bwPerConnLo	int
@@ -82,9 +85,9 @@ type Config struct {
 }
 
 func (self *Config) dump() {
-	fmt.Println("Config:", "server:", self.server, "\nclient:", self.daddr, "\nport:", self.port, "\nnum ports:", self.numConns,
+	fmt.Println("Config:", "server:", self.server, "\nclient:", self.daddr, "\nport:", self.port, "\nnum conns:", self.numConns,
 			"\nRamp:", self.rampRate, "\nnum threads:", self.numThreads, "\nBW per conn:", self.bwPerConn, "\nmsg size:", self.msgSize, "\nsTime:", self.sessionTime,
-			"\nrpMode:", self.rpMode, "\nUDP:", self.socketMode)
+			"\nrpMode:", self.rpMode, "\nUDP:", self.socketMode, "\nnumCM:", self.numCM, "\nnumConnsCM:", self.numConnsCM)
 }
 
 func (self *Config) parse(args []string) {
@@ -101,6 +104,7 @@ func (self *Config) parse(args []string) {
 	r := parser.String("r", "burst", &argparse.Options{Help: "burst in percentage from avarage low:high", Default: "100:100"})
 	l := parser.Int("l", "msg size", &argparse.Options{Help: "length(in bytes) of buffer in bytes to read or write", Default: 1440})
 	t := parser.Int("t", "time", &argparse.Options{Help: "time in seconds to transmit", Default: 10})
+	M := parser.Int("M", "cms", &argparse.Options{Help: "number of connection managers", Default: 0})
 	RP := parser.String("", "rp", &argparse.Options{Help: "RP mode <loader|initiator>, UDP only"})
 	T := parser.Int("T", "stime", &argparse.Options{Help: "session time in seconds. After T seconds the session closes and re-opens immediately. 0 means don't close till the process ends", Default: 0})
 
@@ -154,10 +158,6 @@ func (self *Config) parse(args []string) {
 
 	self.port = *p
 	self.numConns = *C
-	self.rampRate = *R
-	if self.rampRate > self.numConns {
-		self.rampRate = self.numConns
-	}
 
 	// BW per conn in bytes
 	self.bwPerConn = stringToBytes(*b)
@@ -203,6 +203,25 @@ func (self *Config) parse(args []string) {
 	for i := range self.sendBuff {
                 self.sendBuff[i] = charset[seededRand.Intn(len(charset))]
         }
+
+	if *M == 0 {
+		self.numCM = runtime.NumCPU() / 4
+	} else {
+		self.numCM = *M
+	}
+	if self.numConns < self.numCM {
+		self.numCM = 1
+	}
+	self.numConnsCM = self.numConns/self.numCM
+
+	self.rampRate = *R
+	if self.rampRate > self.numConns {
+		self.rampRate = self.numConns
+	}
+	self.rampRate = self.numConns/self.numCM
+	if self.rampRate < 1 {
+		self.rampRate = 1
+	}
 
 }
 
@@ -254,97 +273,86 @@ func (self *Connection) connect() {
 	self.isActive = true
 }
 
-func (self *Connection) send(done chan bool) {
-	ticker := time.NewTicker(1000 * time.Millisecond)
-	for {
-		select {
-		case <-ticker.C:
-			self.byteSent = 0
-			bytesTosend := seededRand.Intn(self.byteBWPerSecHi-self.byteBWPerSecLo+1) + self.byteBWPerSecLo
-			for self.byteSent < bytesTosend {
-				sent, err := self.conn.Write(*self.msg)
-				if err != nil {
-					fmt.Println("Error sent:", self.id, err)
-				} else {
-					self.byteSent += sent
-				}
-			}
-			//fmt.Println("Sent:", self.byteSent, bytesTosend)
-		case <-done:
-			fmt.Println("done")
-			self.conn.Close()
-			return
-		}
-	}
+func (self *Connection) zero() {
+	self.byteBWPerSec = seededRand.Intn(self.byteBWPerSecHi-self.byteBWPerSecLo+1) + self.byteBWPerSecLo
+	self.byteSent  = 0
 }
 
-
-func (self *Connection) run() {
-	for {
-		done := make(chan bool)
-		self.connect()
-
-		if self.rpMode == "loader" {
-			buffer := make([]byte, 100)
-			self.conn.(*net.UDPConn).ReadFrom(buffer)
-			/*
-			nRead, addr, err := self.conn.(*net.UDPConn).ReadFrom(buffer)
-			if err != nil {
-				fmt.Println("Error Read:", err)
-			}
-			fmt.Println("Got read from", addr, "read:", nRead)
-			*/
-		}
-
-		go self.send(done)
-		if self.sessionTime > 0 {
-			time.Sleep(time.Duration(self.sessionTime) * time.Second)
-			fmt.Println("Send done")
-			done <- true
+func (self *Connection) send() {
+	if self.byteSent < self.byteBWPerSec && self.isActive == true {
+	//if self.byteSent < self.byteBWPerSec && self.isActive == true {
+		sent, err := self.conn.Write(*self.msg)
+		if err != nil {
+			fmt.Println("Error sent:", self.id, err)
 		} else {
-			select{}
+			self.byteSent += sent
 		}
-		// give it some time to close
-		time.Sleep(100*time.Millisecond)
-
 	}
 }
 
-func runClient(config *Config) {
-	ticker := time.NewTicker(1000 * time.Millisecond)
-	created := 0
+func runCM(config *Config, id int) {
+	needToCreate := config.numConnsCM
+	if id == 0 && config.numConnsCM*config.numCM < config.numConns {
+		needToCreate += config.numConns - (config.numConnsCM*config.numCM)
+	}
+	totalCreated := 0
+	conns := make([]Connection, 0)
 	sPort := config.sport
-	dPort := config.port
-	for range ticker.C {
-		if created >= config.numConns {
-			// good position to collect stats
-			break
+	if sPort != 0 {
+		sPort = config.sport + id*(config.numConnsCM)
+	}
+        dPort := config.port
+	if config.rpMode != "" {
+		dPort = config.port + id*(config.numConnsCM)
+	}
+        for {
+		secondOver := false
+		duration := time.Duration(1) * time.Second
+		f := func() {
+			secondOver = true
 		}
-		for i:=0; i<config.rampRate; i++ {
-			c := Connection{id: created,
-				daddr: config.daddr,
-				dport: dPort,
-				sport: sPort,
-				saddr: config.saddr,
-				byteBWPerSec: config.bwPerConn,
-				byteBWPerSecLo: config.bwPerConnLo,
-				byteBWPerSecHi: config.bwPerConnHi,
-				isActive: false,
-				socketMode: config.socketMode,
-				msgSize: config.msgSize,
-				sessionTime: config.sessionTime,
-				rpMode: config.rpMode,
-				msg: &config.sendBuff}
-			created++
-			if sPort != 0 {
-				sPort++
+		time.AfterFunc(duration, f)
+
+		for i:=0; i<len(conns); i++ {
+			conns[i].zero()
+		}
+		for secondOver != true {
+			for i:=0; i<len(conns); i++ {
+				conns[i].send()
 			}
-			if config.rpMode != "" {
-				dPort++
+			for i:=0; i<config.rampRate; i++ {
+				// although it seems right, don't take this if out of the for
+				if totalCreated >= needToCreate {
+					break
+				}
+				c := Connection{id: totalCreated,
+					daddr: config.daddr,
+					dport: dPort,
+					sport: sPort,
+					saddr: config.saddr,
+					byteBWPerSec: config.bwPerConn,
+					byteBWPerSecLo: config.bwPerConnLo,
+					byteBWPerSecHi: config.bwPerConnHi,
+					isActive: false,
+					socketMode: config.socketMode,
+					msgSize: config.msgSize,
+					sessionTime: config.sessionTime,
+					rpMode: config.rpMode,
+					msg: &config.sendBuff}
+				if sPort != 0 {
+					sPort++
+				}
+				if config.rpMode != "" {
+					dPort++
+				}
+				conns = append(conns, c)
+				conns[totalCreated].connect()
+				totalCreated++
 			}
-			go c.run()
-	    }
-        }
+
+		} // second is over
+	}
+
 }
 
 type Server struct {
@@ -353,7 +361,6 @@ type Server struct {
 }
 
 func read(s net.Conn) {
-	fmt.Println("in Read:")
 	var err error
 	read := 0
 	buf := make([]byte, 8*1024)
@@ -420,7 +427,9 @@ func main() {
 			runUDPServer(config)
 		}
 	} else {
-		runClient(config)
+		for i:=0; i<config.numCM; i++ {
+			go runCM(config, i)
+		}
 	}
 
 	select {
