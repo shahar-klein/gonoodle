@@ -238,6 +238,7 @@ type Connection struct {
 	byteBWPerSecLo	int
 	byteBWPerSecHi	int
 	isActive	bool
+	isReady		bool
 	socketMode	string
 	msgSize		int
 	msg		*[]byte
@@ -247,7 +248,7 @@ type Connection struct {
 }
 
 func (self *Connection) dump() {
-	fmt.Println("Connection id:", self.id, "Dial to:", net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
+	fmt.Println("Connection id:", self.id, "Dial to:", net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)), "From:", net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)), self.isActive, self.isReady)
 }
 
 func (self *Connection) connect() {
@@ -268,8 +269,9 @@ func (self *Connection) connect() {
 	}
 	if err != nil {
 		fmt.Println("Error connect:", self.id, err)
-		os.Exit(1)
+		return
 	}
+	//go self.waitForInitiator()
 	self.isActive = true
 }
 
@@ -278,8 +280,28 @@ func (self *Connection) zero() {
 	self.byteSent  = 0
 }
 
+func (self *Connection) waitForInitiator() {
+	if self.rpMode == "loader" {
+		buffer := make([]byte, 100)
+		self.conn.(*net.UDPConn).ReadFrom(buffer)
+		/*
+			nRead, addr, err := self.conn.(*net.UDPConn).ReadFrom(buffer)
+			if err != nil {
+				fmt.Println("Error Read:", err)
+			}
+			fmt.Println("Got read from", addr, "read:", nRead)
+		*/
+	}
+	self.isReady = true
+
+}
+
 func (self *Connection) send() {
-	if self.byteSent < self.byteBWPerSec && self.isActive == true {
+	//self.dump()
+	if self.isReady != true {
+		self.waitForInitiator()
+	}
+	if self.byteSent < self.byteBWPerSec && self.isActive == true && self.isReady == true {
 	//if self.byteSent < self.byteBWPerSec && self.isActive == true {
 		sent, err := self.conn.Write(*self.msg)
 		if err != nil {
@@ -334,6 +356,7 @@ func runCM(config *Config, id int) {
 					byteBWPerSecLo: config.bwPerConnLo,
 					byteBWPerSecHi: config.bwPerConnHi,
 					isActive: false,
+					isReady: false,
 					socketMode: config.socketMode,
 					msgSize: config.msgSize,
 					sessionTime: config.sessionTime,
