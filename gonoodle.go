@@ -260,19 +260,22 @@ func (self *Connection) connect() {
 		dAddr, _  := net.ResolveTCPAddr(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
 		sAddr, _  := net.ResolveTCPAddr(self.socketMode, net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)))
 		self.conn, err = net.DialTCP(self.socketMode, sAddr, dAddr)
+		if err != nil {
+			fmt.Println(self.id, err)
+			return
+		}
 		self.conn.(*net.TCPConn).SetLinger(0)
 		self.conn.(*net.TCPConn).SetNoDelay(true)
 	} else {
 		dAddr, _ := net.ResolveUDPAddr(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
 		sAddr, _ := net.ResolveUDPAddr(self.socketMode, net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)))
 		self.conn, err = net.DialUDP(self.socketMode, sAddr, dAddr)
+		if err != nil {
+			fmt.Println(self.id, err)
+			return
+		}
 
 	}
-	if err != nil {
-		fmt.Println("Error connect:", self.id, err)
-		return
-	}
-	//go self.waitForInitiator()
 	self.isActive = true
 }
 
@@ -298,7 +301,6 @@ func (self *Connection) waitForInitiator() {
 }
 
 func (self *Connection) send() {
-	//self.dump()
 	if self.isReady != true {
 		self.waitForInitiator()
 	}
