@@ -1,6 +1,7 @@
 package main
 /*
 TODO: 
+	verbosity
 	burst
 	pps
         raw packet
@@ -125,7 +126,7 @@ func (self *Config) parse(args []string) {
 		self.saddr = lAddr[0]
 	} else { //A:P or :P
 		if lAddr[0] == "" { //:P
-			self.saddr = "0"
+			self.saddr = ""
 		} else {
 			self.saddr = lAddr[0]
 		}
