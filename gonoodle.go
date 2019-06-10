@@ -90,7 +90,6 @@ type Config struct {
 	numCM		int
 	numConnsCM	int // sessions per CM
 	rampRate	int // per CM
-	numThreads	int
 	bwPerConn	int
 	bwPerConnLo	int
 	bwPerConnHi	int
@@ -103,9 +102,13 @@ type Config struct {
 }
 
 func (self *Config) dump() {
-	fmt.Println("Config:", "server:", self.server, "\nclient:", self.daddr, "\nport:", self.port, "\nnum conns:", self.numConns,
-			"\nRamp:", self.rampRate, "\nnum threads:", self.numThreads, "\nBW per conn:", self.bwPerConn, "\nmsg size:", self.msgSize, "\nsTime:", self.sessionTime,
-			"\nrpMode:", self.rpMode, "\nUDP:", self.socketMode, "\nnumCM:", self.numCM, "\nnumConnsCM:", self.numConnsCM)
+	if self.server {
+		fmt.Println("Config:", strings.ToUpper(self.socketMode), "Server\nListen to:", self.port)
+	} else {
+		fmt.Println("Config:",  strings.ToUpper(self.socketMode), "client, Calling", self.daddr, "\b:" , self.port, "\nnum conns:", self.numConns,
+			"\nRamp:", self.rampRate, "\nBW per conn:", self.bwPerConn, "\nmsg size:", self.msgSize, "\nsTime:", self.sessionTime,
+			"\nrpMode:", self.rpMode, "\nnumCM:", self.numCM, "\nnumConnsCM:", self.numConnsCM)
+	}
 }
 
 func (self *Config) parse(args []string) {
@@ -205,7 +208,6 @@ func (self *Config) parse(args []string) {
 		fmt.Println("Error parsing burst numbers")
 		os.Exit(11)
 	}
-	fmt.Println("High:", high, "Low:", low, err)
 	if low > 100 {
 		fmt.Println("Low burst should be less than 100")
 		os.Exit(11)
@@ -371,9 +373,9 @@ func runCM(config *Config, id int, ch chan string) {
 			conns[i].zero()
 		}
 		if reportInterval == 0 {
-			go func () {
-				ch <- fmt.Sprint("CM-", id, " Sent ", humanRead(sentTilReport), ". over the last ", config.reportInterval, " seconds")
-			}()
+			go func (reportBytes int) {
+				ch <- fmt.Sprint("CM-", id, " Sent ", humanRead(reportBytes), ". over the last ", config.reportInterval, " seconds")
+			}(sentTilReport)
 			sentTilReport = 0
 			reportInterval = config.reportInterval
 		}

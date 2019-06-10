@@ -8,7 +8,8 @@ usage: Noodle [-h|--help] [-s|--server] [-c|--client "<value>"] [-u|--udp]
               <integer>] [-R|--ramp <integer>] [-b|--bandwidth "<value>"]
               [-B|--total-bandwidth "<value>"] [-r|--burst "<value>"] [-l|--msg
               size <integer>] [-t|--time <integer>] [-M|--cms <integer>]
-              [--rp "<value>"] [-T|--stime <integer>]
+              [--rp "<value>"] [-T|--stime <integer>] [-i|--report interval
+              <integer>]
 
               iperf with goodies
 
@@ -35,4 +36,7 @@ Arguments:
   -T  --stime            session time in seconds. After T seconds the session
                          closes and re-opens immediately. 0 means don't close
                          till the process ends. Default: 0
+  -i  --report interval  report interval. -1 means report only at the end. -2
+                         means no report. Default: -1
+
 ```
