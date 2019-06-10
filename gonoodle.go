@@ -24,12 +24,28 @@ import (
 	"strings"
 	"strconv"
 	"runtime"
+	"reflect"
 )
 
 const charset = "abcdefghijklmnopqrstuvwxyz" +
 
   "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
+func humanRead(bytes int) (string){
+
+
+	switch {
+		case bytes > 1000000000:
+			return fmt.Sprint(bytes/1000000000, " Gbytes")
+		case bytes > 1000000:
+			return fmt.Sprint(bytes/1000000, " Mbytes")
+		case bytes > 1000:
+			return fmt.Sprint(bytes/1000, " Kbytes")
+	}
+
+	return fmt.Sprint(bytes, " bytes")
+
+}
 
 func stringToBytes(s string) (int) {
 
@@ -83,6 +99,7 @@ type Config struct {
 	sessionTime	int
 	sendBuff	[]byte
 	rpMode		string
+	reportInterval	int
 }
 
 func (self *Config) dump() {
@@ -108,6 +125,7 @@ func (self *Config) parse(args []string) {
 	M := parser.Int("M", "cms", &argparse.Options{Help: "number of connection managers", Default: 0})
 	RP := parser.String("", "rp", &argparse.Options{Help: "RP mode <loader|initiator>, UDP only"})
 	T := parser.Int("T", "stime", &argparse.Options{Help: "session time in seconds. After T seconds the session closes and re-opens immediately. 0 means don't close till the process ends", Default: 0})
+	i := parser.Int("i", "report interval", &argparse.Options{Help: "report interval. -1 means report only at the end. -2 means no report", Default: -1})
 
 
 
@@ -119,6 +137,11 @@ func (self *Config) parse(args []string) {
 
 	self.timeToRun = *t
 	self.sessionTime = *T
+
+	self.reportInterval = *i
+	if self.reportInterval == -1 {
+		self.reportInterval = self.timeToRun-1
+	}
 
 	lAddr := strings.Split(*L, ":")
 	if len(lAddr) == 1 {
@@ -315,13 +338,16 @@ func (self *Connection) send() {
 	}
 }
 
-func runCM(config *Config, id int) {
+func runCM(config *Config, id int, ch chan string) {
 	needToCreate := config.numConnsCM
 	if id == 0 && config.numConnsCM*config.numCM < config.numConns {
 		needToCreate += config.numConns - (config.numConnsCM*config.numCM)
 	}
 	totalCreated := 0
 	conns := make([]Connection, 0)
+	sentTilReport := 0
+	reportInterval := config.reportInterval
+
 	sPort := config.sport
 	if sPort != 0 {
 		sPort = config.sport + id*(config.numConnsCM)
@@ -335,11 +361,21 @@ func runCM(config *Config, id int) {
 		duration := time.Duration(1) * time.Second
 		f := func() {
 			secondOver = true
+			reportInterval--
 		}
 		time.AfterFunc(duration, f)
 
 		for i:=0; i<len(conns); i++ {
+			sentTilReport += conns[i].byteSent
+			// can add here report per session - not recommended
 			conns[i].zero()
+		}
+		if reportInterval == 0 {
+			go func () {
+				ch <- fmt.Sprint("CM-", id, " Sent ", humanRead(sentTilReport), ". over the last ", config.reportInterval, " seconds")
+			}()
+			sentTilReport = 0
+			reportInterval = config.reportInterval
 		}
 		for secondOver != true {
 			for i:=0; i<len(conns); i++ {
@@ -440,11 +476,25 @@ func runTCPServer(config *Config) {
 	}
 }
 
+func reporter(reportChans []chan string) {
+	cases := make([]reflect.SelectCase, len(reportChans))
+	for i, ch := range reportChans {
+		cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ch)}
+	}
+	for {
+		//chosen, value, ok := reflect.Select(cases)
+		//fmt.Printf("Read from channel %#v and received %s\n", reportChans[chosen], value.String())
+		_, value, _ := reflect.Select(cases)
+		fmt.Printf("%s\n", value.String())
+	}
+}
+
 func main() {
 
 	config := new(Config)
 	config.parse(os.Args)
 	config.dump()
+	var reportChans = []chan string{}
 
 	if config.server {
 		if config.socketMode == "tcp" {
@@ -454,8 +504,11 @@ func main() {
 		}
 	} else {
 		for i:=0; i<config.numCM; i++ {
-			go runCM(config, i)
+			ch := make(chan string)
+			reportChans = append(reportChans, ch)
+			go runCM(config, i, reportChans[i])
 		}
+		go reporter(reportChans)
 	}
 
 	select {
