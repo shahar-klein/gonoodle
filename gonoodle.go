@@ -1,14 +1,14 @@
 package main
 /*
 TODO: 
-	verbosity
-	burst
+	verbosity/report/jitter
+	burst/sporadic jitter
 	pps
         raw packet
         time to run
         time to run per session
         serve epoll? not sure I need it in go.
-        adaptive send over second
+        adaptive send over second/add 100 milli rsend resolution within the second
 	specific output device
         mixed sessions
 
@@ -268,7 +268,6 @@ type Connection struct {
 	socketMode	string
 	msgSize		int
 	msg		*[]byte
-	secondNotOver	bool
 	sessionTime	int
 	rpMode		string
 }

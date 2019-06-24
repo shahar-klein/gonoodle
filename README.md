@@ -38,5 +38,19 @@ Arguments:
                          till the process ends. Default: 0
   -i  --report interval  report interval. -1 means report only at the end. -2
                          means no report. Default: -1
+TODOs/Features ideas: 
+        verbosity/report/jitter
+        burst/sporadic jitter
+        pps
+        raw packet
+        time to run
+        time to run per session
+        serve epoll? not sure I need it in go.
+        adaptive send over second/add 100 milli rsend resolution within the second
+        specific output device
+        mixed sessions
+
+
+
 
 ```
