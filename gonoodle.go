@@ -25,11 +25,25 @@ import (
 	"strconv"
 	"runtime"
 	"reflect"
+	"encoding/binary"
 )
 
 const charset = "abcdefghijklmnopqrstuvwxyz" +
 
   "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func ip2int(ip net.IP) uint32 {
+	if len(ip) == 16 {
+		return binary.BigEndian.Uint32(ip[12:16])
+	}
+	return binary.BigEndian.Uint32(ip)
+}
+
+func int2ip(nn uint32) net.IP {
+	ip := make(net.IP, 4)
+	binary.BigEndian.PutUint32(ip, nn)
+	return ip
+}
 
 func humanRead(bytes int) (string){
 
@@ -126,7 +140,7 @@ func (self *Config) parse(args []string) {
 	l := parser.Int("l", "msg size", &argparse.Options{Help: "length(in bytes) of buffer in bytes to read or write", Default: 1440})
 	t := parser.Int("t", "time", &argparse.Options{Help: "time in seconds to transmit", Default: 10})
 	M := parser.Int("M", "cms", &argparse.Options{Help: "number of connection managers", Default: 0})
-	RP := parser.String("", "rp", &argparse.Options{Help: "RP mode <loader|initiator>, UDP only"})
+	RP := parser.String("", "rp", &argparse.Options{Help: "RP mode <loader_multi|loader|initiator>, UDP only"})
 	T := parser.Int("T", "stime", &argparse.Options{Help: "session time in seconds. After T seconds the session closes and re-opens immediately. 0 means don't close till the process ends", Default: 0})
 	i := parser.Int("i", "report interval", &argparse.Options{Help: "report interval. -1 means report only at the end. -2 means no report", Default: -1})
 
@@ -309,7 +323,7 @@ func (self *Connection) zero() {
 }
 
 func (self *Connection) waitForInitiator() {
-	if self.rpMode == "loader" {
+	if self.rpMode == "loader" || self.rpMode == "loader_multi" {
 		buffer := make([]byte, 100)
 		self.conn.(*net.UDPConn).ReadFrom(buffer)
 		/*
@@ -319,6 +333,7 @@ func (self *Connection) waitForInitiator() {
 			}
 			fmt.Println("Got read from", addr, "read:", nRead)
 		*/
+
 	}
 	self.isReady = true
 
@@ -351,9 +366,15 @@ func runCM(config *Config, id int, ch chan string) {
 
 	sPort := config.sport
 	if sPort != 0 {
-		sPort = config.sport + id*(config.numConnsCM)
+		if config.rpMode != "loader_multi" {
+			sPort = config.sport + id*(config.numConnsCM)
+		}
 	}
         dPort := config.port
+	sAddr := uint32(0)
+	if  config.saddr != "" {
+		sAddr = ip2int(net.ParseIP(config.saddr)) + uint32(id*(config.numConnsCM))
+	}
 	if config.rpMode != "" {
 		dPort = config.port + id*(config.numConnsCM)
 	}
@@ -391,7 +412,7 @@ func runCM(config *Config, id int, ch chan string) {
 					daddr: config.daddr,
 					dport: dPort,
 					sport: sPort,
-					saddr: config.saddr,
+					saddr: int2ip(sAddr).String(),
 					byteBWPerSec: config.bwPerConn,
 					byteBWPerSecLo: config.bwPerConnLo,
 					byteBWPerSecHi: config.bwPerConnHi,
@@ -407,6 +428,11 @@ func runCM(config *Config, id int, ch chan string) {
 				}
 				if config.rpMode != "" {
 					dPort++
+				}
+				if config.rpMode == "loader_multi" {
+					sAddr++
+					sPort--
+
 				}
 				conns = append(conns, c)
 				conns[totalCreated].connect()
