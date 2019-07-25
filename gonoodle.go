@@ -278,6 +278,7 @@ type Connection struct {
 	byteBWPerSecLo	int
 	byteBWPerSecHi	int
 	isActive	bool
+	isWaiting	bool
 	isReady		bool
 	socketMode	string
 	msgSize		int
@@ -323,17 +324,20 @@ func (self *Connection) zero() {
 }
 
 func (self *Connection) waitForInitiator() {
+	if self.isWaiting == true {
+		return
+	}
+	self.isWaiting = true
 	if self.rpMode == "loader" || self.rpMode == "loader_multi" {
 		buffer := make([]byte, 100)
 		self.conn.(*net.UDPConn).ReadFrom(buffer)
-		/*
+	/*
 			nRead, addr, err := self.conn.(*net.UDPConn).ReadFrom(buffer)
 			if err != nil {
 				fmt.Println("Error Read:", err)
 			}
 			fmt.Println("Got read from", addr, "read:", nRead)
-		*/
-
+	*/
 	}
 	self.isReady = true
 
@@ -341,7 +345,7 @@ func (self *Connection) waitForInitiator() {
 
 func (self *Connection) send() {
 	if self.isReady != true {
-		self.waitForInitiator()
+		go self.waitForInitiator()
 	}
 	if self.byteSent < self.byteBWPerSec && self.isActive == true && self.isReady == true {
 	//if self.byteSent < self.byteBWPerSec && self.isActive == true {
@@ -418,6 +422,7 @@ func runCM(config *Config, id int, ch chan string) {
 					byteBWPerSecHi: config.bwPerConnHi,
 					isActive: false,
 					isReady: false,
+					isWaiting: false,
 					socketMode: config.socketMode,
 					msgSize: config.msgSize,
 					sessionTime: config.sessionTime,
