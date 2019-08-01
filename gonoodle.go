@@ -365,8 +365,7 @@ func (self *Connection) send() {
 	if self.isReady != true {
 		go self.waitForInitiator()
 	}
-	if self.byteSent < self.byteBWPerSec && self.isActive == true && self.isReady == true {
-	//if self.byteSent < self.byteBWPerSec && self.isActive == true {
+	if self.byteSent < self.byteBWPerSec/10 && self.isActive == true && self.isReady == true {
 		sent, err := self.conn.Write(*self.msg)
 		if err != nil {
 			fmt.Println("Error sent:", self.id, err)
@@ -399,7 +398,7 @@ func runCM(config *Config, id int, ch chan string) {
 	}
         for {
 		secondOver := false
-		duration := time.Duration(1) * time.Second
+		duration := time.Duration(100) * time.Millisecond
 		f := func() {
 			secondOver = true
 			reportInterval--
