@@ -26,6 +26,8 @@ import (
 	"runtime"
 	"reflect"
 	"encoding/binary"
+	"log"
+	"bufio"
 )
 
 const charset = "abcdefghijklmnopqrstuvwxyz" +
@@ -113,6 +115,7 @@ type Config struct {
 	sendBuff	[]byte
 	rpMode		string
 	reportInterval	int
+	randomIPs	[]string
 }
 
 func (self *Config) dump() {
@@ -123,6 +126,21 @@ func (self *Config) dump() {
 			"\nRamp:", self.rampRate, "\nBW per conn:", self.bwPerConn, "\nmsg size:", self.msgSize, "\nsTime:", self.sessionTime,
 			"\nrpMode:", self.rpMode, "\nnumCM:", self.numCM, "\nnumConnsCM:", self.numConnsCM)
 	}
+}
+
+func ReadInts(f string) ([]string, error) {
+    file, err := os.Open(f)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer file.Close()
+    scanner := bufio.NewScanner(file)
+    scanner.Split(bufio.ScanWords)
+    var result []string
+    for scanner.Scan() {
+        result = append(result, scanner.Text())
+    }
+    return result, scanner.Err()
 }
 
 func (self *Config) parse(args []string) {
@@ -144,7 +162,7 @@ func (self *Config) parse(args []string) {
 	T := parser.Int("T", "stime", &argparse.Options{Help: "session time in seconds. After T seconds the session closes and re-opens immediately. 0 means don't close till the process ends", Default: 0})
 	i := parser.Int("i", "report interval", &argparse.Options{Help: "report interval. -1 means report only at the end. -2 means no report", Default: -1})
 
-
+	self.randomIPs, _ = ReadInts("/root/git/tools/1000ips")
 
 	err := parser.Parse(args)
 	if err != nil {
@@ -376,9 +394,6 @@ func runCM(config *Config, id int, ch chan string) {
 	}
         dPort := config.port
 	sAddr := uint32(0)
-	if  config.saddr != "" {
-		sAddr = ip2int(net.ParseIP(config.saddr)) + uint32(id*(config.numConnsCM))
-	}
 	if config.rpMode != "" {
 		dPort = config.port + id*(config.numConnsCM)
 	}
@@ -412,6 +427,11 @@ func runCM(config *Config, id int, ch chan string) {
 				if totalCreated >= needToCreate {
 					break
 				}
+				if config.rpMode == "loader_multi" {
+					randomIP := config.randomIPs[(id*config.numConnsCM)+totalCreated]
+					fmt.Println("Got:", randomIP)
+					sAddr = ip2int(net.ParseIP(randomIP))
+				}
 				c := Connection{id: totalCreated,
 					daddr: config.daddr,
 					dport: dPort,
@@ -435,7 +455,6 @@ func runCM(config *Config, id int, ch chan string) {
 					dPort++
 				}
 				if config.rpMode == "loader_multi" {
-					sAddr++
 					sPort--
 
 				}
