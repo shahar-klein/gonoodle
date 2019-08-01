@@ -173,8 +173,9 @@ func (self *Config) parse(args []string) {
 
 	self.reportInterval = *i
 	if self.reportInterval == -1 {
-		self.reportInterval = self.timeToRun-1
+		self.reportInterval = (self.timeToRun-1)
 	}
+	self.reportInterval *= 10
 
 	lAddr := strings.Split(*L, ":")
 	if len(lAddr) == 1 {
