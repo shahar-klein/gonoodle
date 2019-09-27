@@ -278,7 +278,7 @@ func (self *Config) parse(args []string) {
 	if self.rampRate > self.numConns {
 		self.rampRate = self.numConns
 	}
-	self.rampRate = self.numConns/self.numCM
+	self.rampRate = self.rampRate/self.numCM
 	if self.rampRate < 1 {
 		self.rampRate = 1
 	}
@@ -311,7 +311,7 @@ func (self *Connection) dump() {
 	fmt.Println("Connection id:", self.id, "Dial to:", net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)), "From:", net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)), self.isActive, self.isReady)
 }
 
-func (self *Connection) connect() {
+func (self *Connection) connect() bool {
 	var err error
 	//fmt.Println("Connection: Low:", self.byteBWPerSecLo, "high:", self.byteBWPerSecHi)
 
@@ -321,7 +321,7 @@ func (self *Connection) connect() {
 		self.conn, err = net.DialTCP(self.socketMode, sAddr, dAddr)
 		if err != nil {
 			fmt.Println(self.id, err)
-			return
+			return false
 		}
 		self.conn.(*net.TCPConn).SetLinger(0)
 		self.conn.(*net.TCPConn).SetNoDelay(true)
@@ -331,11 +331,12 @@ func (self *Connection) connect() {
 		self.conn, err = net.DialUDP(self.socketMode, sAddr, dAddr)
 		if err != nil {
 			fmt.Println(self.id, err)
-			return
+			return false
 		}
 
 	}
 	self.isActive = true
+	return true
 }
 
 func (self *Connection) zero() {
@@ -398,12 +399,20 @@ func runCM(config *Config, id int, ch chan string) {
 	if config.rpMode != "" {
 		dPort = config.port + id*(config.numConnsCM)
 	}
+	ten := 0
+	secondCreated := 0
         for {
+		// I changed the send resolution to 100 ms - very quick and dirty. need to re-write it.
 		secondOver := false
 		duration := time.Duration(100) * time.Millisecond
 		f := func() {
 			secondOver = true
 			reportInterval--
+			ten++
+			if ten == 10 {
+				ten = 0
+				secondCreated = 0
+			}
 		}
 		time.AfterFunc(duration, f)
 
@@ -426,6 +435,9 @@ func runCM(config *Config, id int, ch chan string) {
 			for i:=0; i<config.rampRate; i++ {
 				// although it seems right, don't take this if out of the for
 				if totalCreated >= needToCreate {
+					break
+				}
+				if secondCreated > config.rampRate {
 					break
 				}
 				if config.rpMode == "loader_multi" {
@@ -459,9 +471,12 @@ func runCM(config *Config, id int, ch chan string) {
 					sPort--
 
 				}
-				conns = append(conns, c)
-				conns[totalCreated].connect()
-				totalCreated++
+				if c.connect() {
+					conns = append(conns, c)
+					//conns[totalCreated].connect()
+					totalCreated++
+					secondCreated++
+				}
 			}
 
 		} // second is over
