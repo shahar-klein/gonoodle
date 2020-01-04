@@ -1,4 +1,4 @@
-noodle is a basic iperf like load tool with some goodies like bw throttle per session
+noodle is a c10k iperf like load tool with some goodies like bw throttle per session
 and session ramp up throttle
 
 ```
