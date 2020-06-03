@@ -175,7 +175,7 @@ func (self *Config) parse(args []string) {
 	if self.reportInterval == -1 {
 		self.reportInterval = (self.timeToRun-1)
 	}
-	self.reportInterval *= 10
+	self.reportInterval *= 62
 
 	lAddr := strings.Split(*L, ":")
 	if len(lAddr) == 1 {
@@ -369,7 +369,7 @@ func (self *Connection) send() {
 	if self.isReady != true {
 		go self.waitForInitiator()
 	}
-	if self.byteSent < self.byteBWPerSec/10 && self.isActive == true && self.isReady == true {
+	if self.byteSent < self.byteBWPerSec/62 && self.isActive == true && self.isReady == true {
 		sent, err := self.conn.Write(*self.msg)
 		if err != nil {
 			fmt.Println("Error sent:", self.id, err)
@@ -405,12 +405,12 @@ func runCM(config *Config, id int, ch chan string) {
         for {
 		// I changed the send resolution to 100 ms - very quick and dirty. need to re-write it.
 		secondOver := false
-		duration := time.Duration(100) * time.Millisecond
+		duration := time.Duration(16) * time.Millisecond
 		f := func() {
 			secondOver = true
 			reportInterval--
 			ten++
-			if ten == 10 {
+			if ten == 62 {
 				ten = 0
 				secondCreated = 0
 			}
@@ -424,7 +424,7 @@ func runCM(config *Config, id int, ch chan string) {
 		}
 		if reportInterval == 0 {
 			go func (reportBytes int) {
-				ch <- fmt.Sprint("CM-", id, " Sent ", humanRead(reportBytes), ". over the last ", config.reportInterval, " seconds")
+				ch <- fmt.Sprint("CM-", id, " Sent ", humanRead(reportBytes), ". over the last ", config.reportInterval/62, " seconds")
 			}(sentTilReport)
 			sentTilReport = 0
 			reportInterval = config.reportInterval
