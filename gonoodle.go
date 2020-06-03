@@ -340,8 +340,9 @@ func (self *Connection) connect() bool {
 }
 
 func (self *Connection) zero() {
-	//self.byteBWPerSec = seededRand.Intn(self.byteBWPerSecHi-self.byteBWPerSecLo+1) + self.byteBWPerSecLo
-	self.byteBWPerSec = self.byteBWPerSecLo
+
+	self.byteBWPerSec = rand.Intn(self.byteBWPerSecHi-self.byteBWPerSecLo+1) + self.byteBWPerSecLo
+
 	self.byteSent  = 0
 }
 
