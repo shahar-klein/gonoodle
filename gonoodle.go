@@ -435,6 +435,9 @@ func runCM(config *Config, id int, ch chan string) {
 				conns[i].send()
 			}
 			for i:=0; i<config.rampRate; i++ {
+				if ten > 0 { // this is needed so the ramp would work on this 16ms scheduling
+					break
+				}
 				// although it seems right, don't take this if out of the for
 				if totalCreated >= needToCreate {
 					break
