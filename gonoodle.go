@@ -495,6 +495,9 @@ func runCM(config *Config, id int, ch chan string) {
 						//conns[totalCreated].connect()
 						totalCreated++
 						secondCreated++
+					} else {
+						fmt.Println("Failed Connecting")
+						c.dump()
 					}
 				}
 			}
