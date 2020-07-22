@@ -34,6 +34,9 @@ const charset = "abcdefghijklmnopqrstuvwxyz" +
 
   "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
+/* How often to send in msec */
+var SendInterval, NumSendInterval int
+
 func ip2int(ip net.IP) uint32 {
 	if len(ip) == 16 {
 		return binary.BigEndian.Uint32(ip[12:16])
@@ -157,6 +160,7 @@ func (self *Config) parse(args []string) {
 	r := parser.String("r", "burst", &argparse.Options{Help: "burst in percentage from avarage low:high", Default: "100:100"})
 	l := parser.Int("l", "msg size", &argparse.Options{Help: "length(in bytes) of buffer in bytes to read or write", Default: 1440})
 	t := parser.Int("t", "time", &argparse.Options{Help: "time in seconds to transmit", Default: 10})
+	f := parser.Int("f", "frequency", &argparse.Options{Help: "frequency in msec. Sessions will transmit every f millisec.", Default: 100})
 	M := parser.Int("M", "cms", &argparse.Options{Help: "number of connection managers", Default: 0})
 	RP := parser.String("", "rp", &argparse.Options{Help: "RP mode <loader_multi|loader|initiator>, UDP only"})
 	T := parser.Int("T", "stime", &argparse.Options{Help: "session time in seconds. After T seconds the session closes and re-opens immediately. 0 means don't close till the process ends", Default: 0})
@@ -168,6 +172,10 @@ func (self *Config) parse(args []string) {
 		os.Exit(1)
 	}
 
+	SendInterval = *f
+	NumSendInterval = 1000 / SendInterval
+
+	fmt.Println("SendInterval:", SendInterval, "NumSendInterval:", NumSendInterval)
 	self.timeToRun = *t
 	self.sessionTime = *T
 
@@ -175,7 +183,7 @@ func (self *Config) parse(args []string) {
 	if self.reportInterval == -1 {
 		self.reportInterval = (self.timeToRun-1)
 	}
-	self.reportInterval *= 62
+	self.reportInterval *= NumSendInterval
 
 	lAddr := strings.Split(*L, ":")
 	if len(lAddr) == 1 {
@@ -288,6 +296,7 @@ func (self *Config) parse(args []string) {
 
 type Connection struct {
 	id		int
+	thrId		int
 	conn		net.Conn
 	daddr		string
 	saddr		string
@@ -308,7 +317,7 @@ type Connection struct {
 }
 
 func (self *Connection) dump() {
-	fmt.Println("Connection id:", self.id, "Dial to:", net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)), "From:", net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)), self.isActive, self.isReady)
+	fmt.Println("Connection id:", self.id, "Thread id:", self.thrId, "Dial to:", net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)), "From:", net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)), self.isActive, self.isReady)
 }
 
 func (self *Connection) connect() bool {
@@ -370,7 +379,7 @@ func (self *Connection) send() {
 	if self.isReady != true {
 		go self.waitForInitiator()
 	}
-	if self.byteSent < self.byteBWPerSec/62 && self.isActive == true && self.isReady == true {
+	if self.byteSent < self.byteBWPerSec/NumSendInterval && self.isActive == true && self.isReady == true {
 		sent, err := self.conn.Write(*self.msg)
 		if err != nil {
 			fmt.Println("Error sent:", self.id, err)
@@ -406,12 +415,12 @@ func runCM(config *Config, id int, ch chan string) {
         for {
 		// I changed the send resolution to 100 ms - very quick and dirty. need to re-write it.
 		secondOver := false
-		duration := time.Duration(16) * time.Millisecond
+		duration := time.Duration(SendInterval) * time.Millisecond
 		f := func() {
 			secondOver = true
 			reportInterval--
 			ten++
-			if ten == 62 {
+			if ten == NumSendInterval {
 				ten = 0
 				secondCreated = 0
 			}
@@ -425,7 +434,7 @@ func runCM(config *Config, id int, ch chan string) {
 		}
 		if reportInterval == 0 {
 			go func (reportBytes int) {
-				ch <- fmt.Sprint("CM-", id, " Sent ", humanRead(reportBytes), ". over the last ", config.reportInterval/62, " seconds")
+				ch <- fmt.Sprint("CM-", id, " Sent ", humanRead(reportBytes), ". over the last ", config.reportInterval/NumSendInterval, " seconds")
 			}(sentTilReport)
 			sentTilReport = 0
 			reportInterval = config.reportInterval
@@ -451,6 +460,7 @@ func runCM(config *Config, id int, ch chan string) {
 					sAddr = ip2int(net.ParseIP(randomIP))
 				}
 				c := Connection{id: totalCreated,
+					thrId: id,
 					daddr: config.daddr,
 					dport: dPort,
 					sport: sPort,
@@ -481,6 +491,9 @@ func runCM(config *Config, id int, ch chan string) {
 					//conns[totalCreated].connect()
 					totalCreated++
 					secondCreated++
+				} else {
+					fmt.Println("Connect failed for:")
+					c.dump()
 				}
 			}
 
