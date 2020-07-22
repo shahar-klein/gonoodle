@@ -440,62 +440,57 @@ func runCM(config *Config, id int, ch chan string) {
 			reportInterval = config.reportInterval
 		}
 		for secondOver != true {
-			// Wait for all the connections to be in place
-			if totalCreated >= needToCreate {
-				for i:=0; i<len(conns); i++ {
-					conns[i].send()
+			for i:=0; i<len(conns); i++ {
+				conns[i].send()
+			}
+			for i:=0; i<config.rampRate; i++ {
+				if ten > 0 { // this is needed so the ramp would work on this 16ms scheduling
+					break
 				}
-			} else {
-				for i:=0; i<config.rampRate; i++ {
-					if ten > 0 { // this is needed so the ramp would work on this 16ms scheduling
-						break
-					}
-					// although it seems right, don't take this if out of the for
-					// XXX-Check if this is needed, based on about comment.
-					if totalCreated >= needToCreate {
-						break
-					}
-					if secondCreated > config.rampRate {
-						break
-					}
-					if config.rpMode == "loader_multi" {
-						randomIP := config.randomIPs[(id*config.numConnsCM)+totalCreated]
-						fmt.Println("Got:", randomIP)
-						sAddr = ip2int(net.ParseIP(randomIP))
-					}
-					c := Connection{id: totalCreated,
-						thrId: id,
-						daddr: config.daddr,
-						dport: dPort,
-						sport: sPort,
-						saddr: int2ip(sAddr).String(),
-						byteBWPerSec: config.bwPerConn,
-						byteBWPerSecLo: config.bwPerConnLo,
-						byteBWPerSecHi: config.bwPerConnHi,
-						isActive: false,
-						isReady: false,
-						isWaiting: false,
-						socketMode: config.socketMode,
-						msgSize: config.msgSize,
-						sessionTime: config.sessionTime,
-						rpMode: config.rpMode,
-						msg: &config.sendBuff}
-					if sPort != 0 {
-						sPort++
-					}
-					if config.rpMode != "" {
-						dPort++
-					}
-					if config.rpMode == "loader_multi" {
-						sPort--
-	
-					}
-					if c.connect() {
-						conns = append(conns, c)
-						//conns[totalCreated].connect()
-						totalCreated++
-						secondCreated++
-					}
+				// although it seems right, don't take this if out of the for
+				if totalCreated >= needToCreate {
+					break
+				}
+				if secondCreated > config.rampRate {
+					break
+				}
+				if config.rpMode == "loader_multi" {
+					randomIP := config.randomIPs[(id*config.numConnsCM)+totalCreated]
+					fmt.Println("Got:", randomIP)
+					sAddr = ip2int(net.ParseIP(randomIP))
+				}
+				c := Connection{id: totalCreated,
+					thrId: id,
+					daddr: config.daddr,
+					dport: dPort,
+					sport: sPort,
+					saddr: int2ip(sAddr).String(),
+					byteBWPerSec: config.bwPerConn,
+					byteBWPerSecLo: config.bwPerConnLo,
+					byteBWPerSecHi: config.bwPerConnHi,
+					isActive: false,
+					isReady: false,
+					isWaiting: false,
+					socketMode: config.socketMode,
+					msgSize: config.msgSize,
+					sessionTime: config.sessionTime,
+					rpMode: config.rpMode,
+					msg: &config.sendBuff}
+				if sPort != 0 {
+					sPort++
+				}
+				if config.rpMode != "" {
+					dPort++
+				}
+				if config.rpMode == "loader_multi" {
+					sPort--
+
+				}
+				if c.connect() {
+					conns = append(conns, c)
+					//conns[totalCreated].connect()
+					totalCreated++
+					secondCreated++
 				}
 			}
 
