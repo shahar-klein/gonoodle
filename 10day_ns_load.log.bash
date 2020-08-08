@@ -10,7 +10,19 @@
 # 200 sessions for 10 hours 40mb
 #./gonoodle -u -c 10.8.51.71 --rp loader -C 200 -R 20 -M 10 -b 40m -p 5000 -L 10.8.51.71:8000 -l 1400 -t 360 &
 
+
+# ip netns  add nsInitiator
+# ip link set enp1s0 netns nsInitiator
+# ip netns exec nsInitiator ip add add 30.30.30.20/16 dev enp1s0
+# ip netns exec nsInitiator ip link set enp1s0 up
+# ip netns exec nsInitiator ip r add default  dev enp1s0
+
+
+
+
+
 set -x 
+set +e
 T=21600
 B=20m
 RP=5.5.5.2
@@ -19,6 +31,7 @@ d=0
 
 log_info_on_rp() {
 	when=$1
+	ssh $RP "mkdir /root/day${when}"
 	ssh $RP "ethtool -S enp7s0 > /root/day${when}/enp7s0.ethtool"
 	ssh $RP "ethtool -S enp8s0 > /root/day${when}/enp8s0.ethtool"
 	ssh $RP "cat /proc/meminfo> /root/day${when}/meminfo"
