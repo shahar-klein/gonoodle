@@ -166,6 +166,12 @@ func (self *Config) parse(args []string) {
 	T := parser.Int("T", "stime", &argparse.Options{Help: "session time in seconds. After T seconds the session closes and re-opens immediately. 0 means don't close till the process ends", Default: 0})
 	i := parser.Int("i", "report interval", &argparse.Options{Help: "report interval. -1 means report only at the end. -2 means no report", Default: -1})
 
+
+	if len(args) < 2 {
+		fmt.Print(parser.Usage(0))
+		os.Exit(1)
+	}
+
 	err := parser.Parse(args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
@@ -510,6 +516,7 @@ func read(s net.Conn) {
 	buf := make([]byte, 8*1024)
 	for {
 		read, err = s.Read(buf)
+		fmt.Println("Read", buf)
 		if read == 0 {
 			s.Close()
 			break
