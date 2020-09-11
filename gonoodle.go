@@ -34,9 +34,6 @@ const charset = "abcdefghijklmnopqrstuvwxyz" +
 
   "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-/* How often to send in msec */
-var SendInterval, NumSendInterval int
-
 func ip2int(ip net.IP) uint32 {
 	if len(ip) == 16 {
 		return binary.BigEndian.Uint32(ip[12:16])
@@ -109,9 +106,12 @@ type Config struct {
 	numCM		int
 	numConnsCM	int // sessions per CM
 	rampRate	int // per CM
+	rampRatePerCycle int // per CM
 	bwPerConn	int
-	bwPerConnLo	int
-	bwPerConnHi	int
+	bwPerCycLo	int
+	bwPerCycHi	int
+	cycleInMiliSec  float64
+	sendPerConPerCycle  float64
 	msgSize		int
 	timeToRun	int
 	sessionTime	int
@@ -126,7 +126,7 @@ func (self *Config) dump() {
 		fmt.Println("Config:", strings.ToUpper(self.socketMode), "Server\nListen to:", self.port)
 	} else {
 		fmt.Println("Config:",  strings.ToUpper(self.socketMode), "client, Calling", self.daddr, "\b:" , self.port, "\nnum conns:", self.numConns,
-			"\nRamp:", self.rampRate, "\nBW per conn:", self.bwPerConn, "\nmsg size:", self.msgSize, "\nsTime:", self.sessionTime,
+			"\nRamp:", self.rampRate, "\nrampRatePerCycle:", self.rampRatePerCycle, "\nBW per conn:", self.bwPerConn, "\nCycle in mili:", self.cycleInMiliSec, "\nBytes send per Cycle:", self.sendPerConPerCycle,  "\nmsg size:", self.msgSize, "\nsTime:", self.sessionTime,
 			"\nrpMode:", self.rpMode, "\nnumCM:", self.numCM, "\nnumConnsCM:", self.numConnsCM)
 	}
 }
@@ -178,10 +178,6 @@ func (self *Config) parse(args []string) {
 		os.Exit(1)
 	}
 
-	SendInterval = *f
-	NumSendInterval = 1000 / SendInterval
-
-	fmt.Println("SendInterval:", SendInterval, "NumSendInterval:", NumSendInterval)
 	self.timeToRun = *t
 	self.sessionTime = *T
 
@@ -189,7 +185,6 @@ func (self *Config) parse(args []string) {
 	if self.reportInterval == -1 {
 		self.reportInterval = (self.timeToRun-1)
 	}
-	self.reportInterval *= NumSendInterval
 
 	lAddr := strings.Split(*L, ":")
 	if len(lAddr) == 1 {
@@ -246,6 +241,11 @@ func (self *Config) parse(args []string) {
 		self.bwPerConn = 1
 	}
 
+	self.cycleInMiliSec = float64(*f)
+	// bytes to send per connection per cycle b/f/1000
+	self.sendPerConPerCycle = float64(self.bwPerConn)*self.cycleInMiliSec/1000
+
+
 	low, err := strconv.Atoi(strings.Split(*r, ":")[0])
 	if err != nil {
 		fmt.Println("Error parsing burst numbers")
@@ -264,8 +264,8 @@ func (self *Config) parse(args []string) {
 		fmt.Println("high burst should be more than 100")
 		os.Exit(11)
 	}
-	self.bwPerConnHi = int(float64(self.bwPerConn)*float64(high)/100)
-	self.bwPerConnLo = int(float64(self.bwPerConn)*float64(low)/100)
+	self.bwPerCycHi = int(float64(self.sendPerConPerCycle)*float64(high)/100)
+	self.bwPerCycLo = int(float64(self.sendPerConPerCycle)*float64(low)/100)
 
 	self.msgSize = *l
 	// be polite
@@ -296,6 +296,7 @@ func (self *Config) parse(args []string) {
 	if self.rampRate < 1 {
 		self.rampRate = 1
 	}
+	self.rampRatePerCycle = int(float64(self.rampRate)*self.cycleInMiliSec/1000)
 
 }
 
@@ -309,9 +310,9 @@ type Connection struct {
 	dport		int
 	sport		int
 	byteSent	int
-	byteBWPerSec	int
-	byteBWPerSecLo	int
-	byteBWPerSecHi	int
+	byteBWPerCycle	int
+	byteBWPerCycLo	int
+	byteBWPerCycHi	int
 	isActive	bool
 	isWaiting	bool
 	isReady		bool
@@ -356,7 +357,9 @@ func (self *Connection) connect() bool {
 
 func (self *Connection) zero() {
 
-	self.byteBWPerSec = rand.Intn(self.byteBWPerSecHi-self.byteBWPerSecLo+1) + self.byteBWPerSecLo
+	if self.byteBWPerCycHi != self.byteBWPerCycLo {
+		self.byteBWPerCycle = rand.Intn(self.byteBWPerCycHi-self.byteBWPerCycLo+1) + self.byteBWPerCycLo
+	}
 
 	self.byteSent  = 0
 }
@@ -385,7 +388,7 @@ func (self *Connection) send() {
 	if self.isReady != true {
 		go self.waitForInitiator()
 	}
-	if self.byteSent < self.byteBWPerSec/NumSendInterval && self.isActive == true && self.isReady == true {
+	if self.byteSent < self.byteBWPerCycle && self.isActive == true && self.isReady == true {
 		sent, err := self.conn.Write(*self.msg)
 		if err != nil {
 			fmt.Println("Error sent:", self.id, err)
@@ -401,9 +404,14 @@ func runCM(config *Config, id int, ch chan string) {
 		needToCreate += config.numConns - (config.numConnsCM*config.numCM)
 	}
 	totalCreated := 0
+	conCreatedThisCycle := 0
+	cyclesForReport := 0
 	conns := make([]Connection, 0)
 	sentTilReport := 0
-	reportInterval := config.reportInterval
+	cyclesTillreport := config.reportInterval*1000 / int(config.cycleInMiliSec)
+	if cyclesTillreport < 1 {
+		cyclesTillreport = 1
+	}
 
 	sPort := config.sport
 	if sPort != 0 {
@@ -416,48 +424,39 @@ func runCM(config *Config, id int, ch chan string) {
 	if config.rpMode != "" {
 		dPort = config.port + id*(config.numConnsCM)
 	}
-	ten := 0
-	secondCreated := 0
-        for {
-		// I changed the send resolution to 100 ms - very quick and dirty. need to re-write it.
-		secondOver := false
-		duration := time.Duration(SendInterval) * time.Millisecond
+
+        for { // This is the main load loop per thread(CM)
+		cycleOver := false
+		duration := time.Duration(config.cycleInMiliSec) * time.Millisecond
 		f := func() {
-			secondOver = true
-			reportInterval--
-			ten++
-			if ten == NumSendInterval {
-				ten = 0
-				secondCreated = 0
-			}
+			cycleOver = true
+			conCreatedThisCycle = 0
+			cyclesForReport += 1
 		}
 		time.AfterFunc(duration, f)
 
+		//TODO reporting - consider go routine for that
 		for i:=0; i<len(conns); i++ {
 			sentTilReport += conns[i].byteSent
 			// can add here report per session - not recommended
 			conns[i].zero()
 		}
-		if reportInterval == 0 {
+		if cyclesTillreport == cyclesForReport {
 			go func (reportBytes int) {
-				ch <- fmt.Sprint("CM-", id, " Sent ", humanRead(reportBytes), ". over the last ", config.reportInterval/NumSendInterval, " seconds")
+				ch <- fmt.Sprint("CM-", id, " Sent ", humanRead(reportBytes), ". over the last ", cyclesTillreport*int(config.cycleInMiliSec), " mili-seconds")
 			}(sentTilReport)
 			sentTilReport = 0
-			reportInterval = config.reportInterval
+			cyclesForReport = 0
 		}
-		for secondOver != true {
+		for cycleOver != true {
 			for i:=0; i<len(conns); i++ {
 				conns[i].send()
 			}
 			for i:=0; i<config.rampRate; i++ {
-				if ten > 0 { // this is needed so the ramp would work on this 16ms scheduling
-					break
-				}
-				// although it seems right, don't take this if out of the for
 				if totalCreated >= needToCreate {
 					break
 				}
-				if secondCreated > config.rampRate {
+				if conCreatedThisCycle > config.rampRate {
 					break
 				}
 				if config.rpMode == "loader_multi" {
@@ -471,9 +470,9 @@ func runCM(config *Config, id int, ch chan string) {
 					dport: dPort,
 					sport: sPort,
 					saddr: int2ip(sAddr).String(),
-					byteBWPerSec: config.bwPerConn,
-					byteBWPerSecLo: config.bwPerConnLo,
-					byteBWPerSecHi: config.bwPerConnHi,
+					byteBWPerCycle: int(config.sendPerConPerCycle),
+					byteBWPerCycLo: config.bwPerCycLo,
+					byteBWPerCycHi: config.bwPerCycHi,
 					isActive: false,
 					isReady: false,
 					isWaiting: false,
@@ -494,9 +493,8 @@ func runCM(config *Config, id int, ch chan string) {
 				}
 				if c.connect() {
 					conns = append(conns, c)
-					//conns[totalCreated].connect()
 					totalCreated++
-					secondCreated++
+					conCreatedThisCycle++
 				}
 			}
 
