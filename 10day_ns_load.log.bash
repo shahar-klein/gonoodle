@@ -29,6 +29,8 @@ RP=5.5.5.2
 
 d=0
 
+ssh $RP "rm -rf /root/day*"
+
 log_info_on_rp() {
 	when=$1
 	ssh $RP "mkdir /root/day${when}"

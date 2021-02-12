@@ -461,7 +461,7 @@ func runCM(config *Config, id int, ch chan string) {
 				}
 				if config.rpMode == "loader_multi" {
 					randomIP := config.randomIPs[(id*config.numConnsCM)+totalCreated]
-					fmt.Println("Got:", randomIP)
+					//fmt.Println("Got:", randomIP)
 					sAddr = ip2int(net.ParseIP(randomIP))
 				}
 				c := Connection{id: totalCreated,
