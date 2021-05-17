@@ -117,6 +117,7 @@ type Config struct {
 	sessionTime	int
 	sendBuff	[]byte
 	rpMode		string
+	multiIpFile	string
 	reportInterval	int
 	randomIPs	[]string
 }
@@ -163,6 +164,7 @@ func (self *Config) parse(args []string) {
 	f := parser.Int("f", "frequency", &argparse.Options{Help: "frequency in msec. Sessions will transmit every f millisec.", Default: 100})
 	M := parser.Int("M", "cms", &argparse.Options{Help: "number of connection managers", Default: 0})
 	RP := parser.String("", "rp", &argparse.Options{Help: "RP mode <loader_multi|loader|initiator>, UDP only"})
+	RF := parser.String("", "rpips", &argparse.Options{Help: "multi ips file"})
 	T := parser.Int("T", "stime", &argparse.Options{Help: "session time in seconds. After T seconds the session closes and re-opens immediately. 0 means don't close till the process ends", Default: 0})
 	i := parser.Int("i", "report interval", &argparse.Options{Help: "report interval. -1 means report only at the end. -2 means no report", Default: -1})
 
@@ -216,9 +218,16 @@ func (self *Config) parse(args []string) {
 		self.socketMode = "udp"
 	}
 
+	self.multiIpFile= *RF
+
 	self.rpMode = *RP
 	if self.rpMode == "loader_multi" {
-		self.randomIPs, _ = ReadInts("/root/git/tools/1000ips")
+		if self.multiIpFile == "" {
+			fmt.Println("\nFor the loader_multi option you must specify an ips file with --rpips\n")
+			fmt.Print(parser.Usage(err))
+			os.Exit(1)
+		}
+		self.randomIPs, _ = ReadInts(self.multiIpFile)
 	}
 
 	if self.rpMode != "" && self.socketMode != "udp" {

@@ -1,5 +1,5 @@
 set +e
-T=60
+T=180
 B=40m
 RP=5.5.5.2
 INITIATOR_NS=nsInitiator
@@ -7,13 +7,13 @@ RP_PUB_IP=30.30.30.100
 TCPDUMP_PKT_CNT=10000
 INITIATOR_DEV=enp1s0
 LOADER_DEV=enp3s0
-days=2
+days=1
 d=0
 dat=`date '+%A%d%B%Y'`
 logD="/root/15D_RP_test_start_at_$dat"
 NUMC=1
 NUMR=1
-F=500
+F=16
 
 log_info_on_rp() {
         when=$1
