@@ -1,10 +1,10 @@
 set +e
-T=60
-B=40m
-RP=10.2.1.108
-RP_PRIV_IP=10.2.1.108
-INITIATOR_IP=10.192.6.14
-RP_PUB_IP=10.2.254.15
+T=120
+B=20m
+RP=10.192.21.36
+RP_PRIV_IP=5.5.5.2
+INITIATOR_IP=10.192.25.25
+RP_PUB_IP=10.2.254.16
 TCPDUMP_PKT_CNT=10000
 INITIATOR_DEV=net1
 LOADER_DEV=net1
@@ -12,8 +12,8 @@ days=1
 d=0
 dat=`date '+%A%d%B%Y'`
 logD="/root/15D_RP_test_start_at_$dat"
-NUMC=1
-NUMR=1
+NUMC=200
+NUMR=200
 F=500
 
 log_info_on_rp() {
@@ -62,7 +62,7 @@ for (( d=1; d<=$days; d++ ))
 do
         for (( h=0; h<1; h++ ))
         do
-                /root/ws/git/gonoodle/gonoodle -u -c $RP_PRIV_IP --rp loader_multi -C $NUMC -R $NUMC -M 10 -b $B -p 12000 -L $RP_PRIV_IP:47998 -l 1400 -f $F -t $T &
+                /root/ws/git/gonoodle/gonoodle -u -c $RP_PRIV_IP --rp loader_multi -C $NUMC -R $NUMC -M 2 -b $B -p 12000 -L $RP_PRIV_IP:47998 -l 1000 -f $F -t $T &
                 sleep 4
                 ssh $INITIATOR_IP /root/ws/git/gonoodle/gonoodle -u -c $RP_PUB_IP --rp initiator -C $NUMC -R $NUMR -M 1 -b 1k -p 12000 -L :12000 -l 1400 -f 1000 -t $T &
                 sleep $TS
