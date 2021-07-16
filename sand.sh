@@ -45,13 +45,13 @@ tcpdump_on_loader() {
         tcpdump -enni $LOADER_DEV -c ${TCPDUMP_PKT_CNT} -w $log_dir/tcpdumpL.${port2}.pcap udp dst port ${port2} &
 }
 
-ssh $RP "rm -rf $log_dir"
+#ssh $RP "rm -rf $log_dir"
 ip netns exec $INITIATOR_NS "rm -rf $log_dir"
 rm -rf $log_dir
 TS=$((T/2))
 
 d=0
-log_info_on_rp $d
+#log_info_on_rp $d
 P1=12000
 P2=12050
 
@@ -61,12 +61,12 @@ for (( d=1; d<=$days; d++ ))
 do
         for (( h=0; h<1; h++ ))
         do
-                /root/ws/git/gonoodle/gonoodle -u -c 5.5.5.2 --rp loader_multi -C $NUMC -R $NUMC -M 10 -b $B -p 12000 -L 5.5.50.0:47998 -l 1400 -f $F -t $T &
+                /root/ws/git/gonoodle/gonoodle -u -c 5.5.5.2 --rp loader_multi --rpips /root/git/tools/1000ips -C $NUMC -R $NUMC -M 10 -b $B -p 12000 -L 5.5.50.0:47998 -l 1400 -f $F -t $T &
                 sleep 4
                 ip netns exec $INITIATOR_NS /root/ws/git/gonoodle/gonoodle -u -c 30.30.30.100 --rp initiator -C $NUMC -R $NUMR -M 1 -b 1k -p 12000 -L :12000 -l 1400 -f 1000 -t $T &
                 sleep $TS
-                tcpdump_on_initiator $d $P1 $P2
-                tcpdump_on_loader $d $P1 $P2
+                #tcpdump_on_initiator $d $P1 $P2
+                #tcpdump_on_loader $d $P1 $P2
                 sleep $TS
                 sleep 3
                 killall -9 gonoodle
@@ -76,7 +76,7 @@ do
                 P1=$(( $P1 + 1 ))
                 P2=$(( $P2 + 1 ))
         done
-        log_info_on_rp $d
+        #log_info_on_rp $d
 
 done
 

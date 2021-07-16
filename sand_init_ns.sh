@@ -1,20 +1,19 @@
 set +e
-T=120
+T=180
 B=20m
-RP=10.192.21.36
-RP_PRIV_IP=5.5.5.2
-INITIATOR_IP=10.192.25.25
-RP_PUB_IP=10.2.254.16
+RP=5.5.5.2
+INITIATOR_NS=nsInitiator
+RP_PUB_IP=30.30.30.100
 TCPDUMP_PKT_CNT=10000
-INITIATOR_DEV=net1
-LOADER_DEV=net1
+INITIATOR_DEV=enp1s0
+LOADER_DEV=enp3s0
 days=1
 d=0
 dat=`date '+%A%d%B%Y'`
 logD="/root/15D_RP_test_start_at_$dat"
-NUMC=200
-NUMR=200
-F=500
+NUMC=${1:-200}
+NUMR=${1:-200}
+F=16
 
 log_info_on_rp() {
         when=$1
@@ -47,8 +46,8 @@ tcpdump_on_loader() {
 }
 
 #ssh $RP "rm -rf $log_dir"
-#ip netns exec $INITIATOR_NS "rm -rf $log_dir"
-#rm -rf $log_dir
+ip netns exec $INITIATOR_NS "rm -rf $log_dir"
+rm -rf $log_dir
 TS=$((T/2))
 
 d=0
@@ -62,17 +61,17 @@ for (( d=1; d<=$days; d++ ))
 do
         for (( h=0; h<1; h++ ))
         do
-                /root/ws/git/gonoodle/gonoodle -u -c $RP_PRIV_IP --rp loader_multi --rpips /root/git/tools/1000ips -C $NUMC -R $NUMC -M 2 -b $B -p 12000 -L $RP_PRIV_IP:47998 -l 1000 -f $F -t $T &
+                /root/ws/git/gonoodle/gonoodle -u -c 5.5.5.2 --rp loader_multi --rpips /root/git/tools/1000ips -C $NUMC -R $NUMC -M 10 -b $B -p 12000 -L 5.5.50.0:47998 -l 1400 -f $F -t $T &
                 sleep 4
-                ssh $INITIATOR_IP /root/ws/git/gonoodle/gonoodle -u -c $RP_PUB_IP --rp initiator -C $NUMC -R $NUMR -M 1 -b 1k -p 12000 -L :12000 -l 1400 -f 1000 -t $T &
+                ip netns exec $INITIATOR_NS /root/ws/git/gonoodle/gonoodle -u -c 30.30.30.100 --rp initiator -C $NUMC -R $NUMR -M 1 -b 1k -p 12000 -L :12000 -l 1400 -f 1000 -t $T &
                 sleep $TS
                 #tcpdump_on_initiator $d $P1 $P2
                 #tcpdump_on_loader $d $P1 $P2
                 sleep $TS
                 sleep 3
                 killall -9 gonoodle
-                ssh $INITIATOR_IP killall -9 gonoodle
-                ssh $INITIATOR_IP killall -9 tcpdump
+                ip netns exec $INITIATOR_NS killall -9 gonoodle
+                ip netns exec $INITIATOR_NS killall -9 tcpdump
                 sleep 3
                 P1=$(( $P1 + 1 ))
                 P2=$(( $P2 + 1 ))
