@@ -28,6 +28,7 @@ import (
 	"encoding/binary"
 	"log"
 	"bufio"
+        "golang.org/x/sys/unix"
 )
 
 const charset = "abcdefghijklmnopqrstuvwxyz" +
@@ -115,6 +116,7 @@ type Config struct {
 	msgSize		int
 	timeToRun	int
 	sessionTime	int
+	tosVal          int
 	sendBuff	[]byte
 	rpMode		string
 	multiIpFile	string
@@ -161,6 +163,7 @@ func (self *Config) parse(args []string) {
 	r := parser.String("r", "burst", &argparse.Options{Help: "burst in percentage from avarage low:high", Default: "100:100"})
 	l := parser.Int("l", "msg size", &argparse.Options{Help: "length(in bytes) of buffer in bytes to read or write", Default: 1440})
 	t := parser.Int("t", "time", &argparse.Options{Help: "time in seconds to transmit", Default: 10})
+	tos := parser.Int("", "tos", &argparse.Options{Help: "tos in Dec", Default: 0})
 	f := parser.Int("f", "frequency", &argparse.Options{Help: "frequency in msec. Sessions will transmit every f millisec.", Default: 100})
 	M := parser.Int("M", "cms", &argparse.Options{Help: "number of connection managers", Default: 0})
 	RP := parser.String("", "rp", &argparse.Options{Help: "RP mode <loader_multi|loader|initiator>, UDP only"})
@@ -182,6 +185,7 @@ func (self *Config) parse(args []string) {
 
 	self.timeToRun = *t
 	self.sessionTime = *T
+        self.tosVal = *tos
 
 	self.reportInterval = *i
 	if self.reportInterval == -1 {
@@ -330,7 +334,24 @@ type Connection struct {
 	msg		*[]byte
 	sessionTime	int
 	rpMode		string
+        tosVal          int
 }
+
+func (self *Connection)setTos(tos int) error {
+	sc, err := self.conn.(*net.UDPConn).SyscallConn()
+	if err != nil {
+		return err
+	}
+	var serr error
+	err = sc.Control(func(fd uintptr) {
+		serr = unix.SetsockoptInt(int(fd), unix.SOL_IP, unix.IP_TOS, tos)
+	})
+	if err != nil {
+		return err
+	}
+	return serr
+}
+
 
 func (self *Connection) dump() {
 	fmt.Println("Connection id:", self.id, "Thread id:", self.thrId, "Dial to:", net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)), "From:", net.JoinHostPort(self.saddr, strconv.Itoa(self.sport)), self.isActive, self.isReady)
@@ -358,6 +379,9 @@ func (self *Connection) connect() bool {
 			fmt.Println(self.id, err)
 			return false
 		}
+                if self.tosVal > 0 {
+                        self.setTos(self.tosVal)
+                }
 
 	}
 	self.isActive = true
@@ -381,13 +405,13 @@ func (self *Connection) waitForInitiator() {
 	if self.rpMode == "loader" || self.rpMode == "loader_multi" {
 		buffer := make([]byte, 100)
 		self.conn.(*net.UDPConn).ReadFrom(buffer)
-	/*
+        /*
 			nRead, addr, err := self.conn.(*net.UDPConn).ReadFrom(buffer)
 			if err != nil {
 				fmt.Println("Error Read:", err)
 			}
 			fmt.Println("Got read from", addr, "read:", nRead)
-	*/
+        */
 	}
 	self.isReady = true
 
@@ -489,6 +513,7 @@ func runCM(config *Config, id int, ch chan string) {
 					msgSize: config.msgSize,
 					sessionTime: config.sessionTime,
 					rpMode: config.rpMode,
+                                        tosVal: config.tosVal,
 					msg: &config.sendBuff}
 				if sPort != 0 {
 					sPort++
