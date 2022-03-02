@@ -337,7 +337,22 @@ type Connection struct {
         tosVal          int
 }
 
-func (self *Connection)setTos(tos int) error {
+func (self *Connection)setTosUDP(tos int) error {
+	sc, err := self.conn.(*net.UDPConn).SyscallConn()
+	if err != nil {
+		return err
+	}
+	var serr error
+	err = sc.Control(func(fd uintptr) {
+		serr = unix.SetsockoptInt(int(fd), unix.SOL_IP, unix.IP_TOS, tos)
+	})
+	if err != nil {
+		return err
+	}
+	return serr
+}
+
+func (self *Connection)setTosTCP(tos int) error {
 	sc, err := self.conn.(*net.UDPConn).SyscallConn()
 	if err != nil {
 		return err
@@ -369,6 +384,9 @@ func (self *Connection) connect() bool {
 			fmt.Println(self.id, err)
 			return false
 		}
+                if self.tosVal > 0 {
+                        self.setTosTCP(self.tosVal)
+                }
 		self.conn.(*net.TCPConn).SetLinger(0)
 		self.conn.(*net.TCPConn).SetNoDelay(true)
 	} else {
@@ -380,7 +398,7 @@ func (self *Connection) connect() bool {
 			return false
 		}
                 if self.tosVal > 0 {
-                        self.setTos(self.tosVal)
+                        self.setTosUDP(self.tosVal)
                 }
 
 	}
