@@ -566,7 +566,7 @@ func read(s net.Conn) {
 	buf := make([]byte, 8*1024)
 	for {
 		read, err = s.Read(buf)
-		fmt.Println("Read", buf)
+		// fmt.Println("Read", buf)
 		if read == 0 {
 			s.Close()
 			break
