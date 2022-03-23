@@ -122,6 +122,7 @@ type Config struct {
 	multiIpFile	string
 	reportInterval	int
 	randomIPs	[]string
+        debugInc        bool
 }
 
 func (self *Config) dump() {
@@ -169,6 +170,7 @@ func (self *Config) parse(args []string) {
 	RP := parser.String("", "rp", &argparse.Options{Help: "RP mode <loader_multi|loader|initiator>, UDP only"})
 	RF := parser.String("", "rpips", &argparse.Options{Help: "multi ips file"})
 	T := parser.Int("T", "stime", &argparse.Options{Help: "session time in seconds. After T seconds the session closes and re-opens immediately. 0 means don't close till the process ends", Default: 0})
+        D := parser.Flag("D", "msginc", &argparse.Options{Help: "Msg payload inc int", Default: false})
 	i := parser.Int("i", "report interval", &argparse.Options{Help: "report interval. -1 means report only at the end. -2 means no report", Default: -1})
 
 
@@ -220,6 +222,10 @@ func (self *Config) parse(args []string) {
 	self.socketMode = "tcp"
 	if *u == true {
 		self.socketMode = "udp"
+	}
+
+	if *D == true {
+		self.debugInc = true
 	}
 
 	self.multiIpFile= *RF
@@ -335,6 +341,8 @@ type Connection struct {
 	sessionTime	int
 	rpMode		string
         tosVal          int
+        debugInc        bool
+        msgCount        int
 }
 
 func (self *Connection)setTosUDP(tos int) error {
@@ -413,6 +421,7 @@ func (self *Connection) zero() {
 	}
 
 	self.byteSent  = 0
+        self.msgCount  = 1
 }
 
 func (self *Connection) waitForInitiator() {
@@ -440,12 +449,19 @@ func (self *Connection) send() {
 		go self.waitForInitiator()
 	}
 	if self.byteSent < self.byteBWPerCycle && self.isActive == true && self.isReady == true {
-		sent, err := self.conn.Write(*self.msg)
-		if err != nil {
-			fmt.Println("Error sent:", self.id, err)
-		} else {
-			self.byteSent += sent
-		}
+                if self.debugInc == true {
+                        fmt.Println("Sending", self.msgCount, strconv.Itoa(self.msgCount))
+                        s := fmt.Sprintf("This is msg No. %d", self.msgCount)
+		        self.conn.Write([]byte(s))
+                        self.msgCount += 1
+                } else {
+                        sent, err := self.conn.Write(*self.msg)
+			if err != nil {
+				fmt.Println("Error sent:", self.id, err)
+			} else {
+				self.byteSent += sent
+			}
+                }
 	}
 }
 
@@ -532,6 +548,7 @@ func runCM(config *Config, id int, ch chan string) {
 					sessionTime: config.sessionTime,
 					rpMode: config.rpMode,
                                         tosVal: config.tosVal,
+                                        debugInc: config.debugInc,
 					msg: &config.sendBuff}
 				if sPort != 0 {
 					sPort++
