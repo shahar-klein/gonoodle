@@ -343,6 +343,7 @@ type Connection struct {
         tosVal          int
         debugInc        bool
         msgCount        int
+        started         time.Time
 }
 
 func (self *Connection)setTosUDP(tos int) error {
@@ -383,6 +384,8 @@ func (self *Connection) dump() {
 func (self *Connection) connect() bool {
 	var err error
 	//fmt.Println("Connection: Low:", self.byteBWPerSecLo, "high:", self.byteBWPerSecHi)
+
+        self.started = time.Now()
 
 	if self.socketMode == "tcp" {
 		dAddr, _  := net.ResolveTCPAddr(self.socketMode, net.JoinHostPort(self.daddr, strconv.Itoa(self.dport)))
@@ -445,6 +448,16 @@ func (self *Connection) waitForInitiator() {
 }
 
 func (self *Connection) send() {
+
+        if self.sessionTime > 0 {
+                if time.Since(self.started) >= time.Duration(self.sessionTime) * time.Second {
+                        self.started = time.Now()
+                        self.conn.Close()
+                        self.connect()
+                }
+        }
+
+
 	if self.isReady != true {
 		go self.waitForInitiator()
 	}
