@@ -640,7 +640,7 @@ func runTCPServer(config *Config) {
 			fmt.Println("Error accepting: ", err.Error())
 			os.Exit(1)
 		}
-		fmt.Println(A, "Got connected from ", conn.RemoteAddr().String())
+		//fmt.Println(A, "Got connected from ", conn.RemoteAddr().String())
 		go read(conn)
 	}
 }
