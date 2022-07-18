@@ -428,21 +428,16 @@ func (self *Connection) zero() {
 }
 
 func (self *Connection) waitForInitiator() {
-	if self.isWaiting == true {
-		return
-	}
-	self.isWaiting = true
 	if self.rpMode == "loader" || self.rpMode == "loader_multi" {
 		buffer := make([]byte, 100)
-		self.conn.(*net.UDPConn).ReadFrom(buffer)
-        /*
+		//self.conn.(*net.UDPConn).ReadFrom(buffer)
 			nRead, addr, err := self.conn.(*net.UDPConn).ReadFrom(buffer)
 			if err != nil {
 				fmt.Println("Error Read:", err)
 			}
 			fmt.Println("Got read from", addr, "read:", nRead)
-        */
 	}
+        self.isWaiting = false
 	self.isReady = true
 
 }
@@ -457,10 +452,13 @@ func (self *Connection) send() {
                 }
         }
 
-
-	if self.isReady != true {
-		go self.waitForInitiator()
-	}
+        if self.isReady != true {
+                if self.isWaiting != true {
+                        self.isWaiting = true
+                                //fmt.Println("Go")
+                                go self.waitForInitiator()
+                }
+        }
 	if self.byteSent < self.byteBWPerCycle && self.isActive == true && self.isReady == true {
                 if self.debugInc == true {
                         fmt.Println("Sending", self.msgCount, strconv.Itoa(self.msgCount))
