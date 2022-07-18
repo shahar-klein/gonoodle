@@ -430,12 +430,14 @@ func (self *Connection) zero() {
 func (self *Connection) waitForInitiator() {
 	if self.rpMode == "loader" || self.rpMode == "loader_multi" {
 		buffer := make([]byte, 100)
-		//self.conn.(*net.UDPConn).ReadFrom(buffer)
+		self.conn.(*net.UDPConn).ReadFrom(buffer)
+                /*
 			nRead, addr, err := self.conn.(*net.UDPConn).ReadFrom(buffer)
 			if err != nil {
 				fmt.Println("Error Read:", err)
 			}
 			fmt.Println("Got read from", addr, "read:", nRead)
+                */
 	}
         self.isWaiting = false
 	self.isReady = true
@@ -446,6 +448,7 @@ func (self *Connection) send() {
 
         if self.sessionTime > 0 {
                 if time.Since(self.started) >= time.Duration(self.sessionTime) * time.Second {
+                        fmt.Println("handle:", self.sport, self.isReady)
                         self.started = time.Now()
                         self.conn.Close()
                         self.connect()
@@ -459,6 +462,7 @@ func (self *Connection) send() {
                                 go self.waitForInitiator()
                 }
         }
+
 	if self.byteSent < self.byteBWPerCycle && self.isActive == true && self.isReady == true {
                 if self.debugInc == true {
                         fmt.Println("Sending", self.msgCount, strconv.Itoa(self.msgCount))
@@ -476,11 +480,7 @@ func (self *Connection) send() {
 	}
 }
 
-func runCM(config *Config, id int, ch chan string) {
-	needToCreate := config.numConnsCM
-	if id == 0 && config.numConnsCM*config.numCM < config.numConns {
-		needToCreate += config.numConns - (config.numConnsCM*config.numCM)
-	}
+func runCM(config *Config, startSport, startDport, needToCreate, id int, ch chan string) {
 	totalCreated := 0
 	conCreatedThisCycle := 0
 	cyclesForReport := 0
@@ -494,13 +494,13 @@ func runCM(config *Config, id int, ch chan string) {
 	sPort := config.sport
 	if sPort != 0 {
 		if config.rpMode != "loader_multi" {
-			sPort = config.sport + id*(config.numConnsCM)
+                        sPort = startSport
 		}
 	}
         dPort := config.port
 	sAddr := uint32(0)
 	if config.rpMode != "" {
-		dPort = config.port + id*(config.numConnsCM)
+                dPort = startDport
 	}
 
         secondStarted := time.Now()
@@ -533,12 +533,13 @@ func runCM(config *Config, id int, ch chan string) {
 		for cycleOver != true {
 			for i:=0; i<len(conns); i++ {
 				conns[i].send()
+
 			}
 			for i:=0; i<config.rampRate; i++ {
 				if totalCreated >= needToCreate {
 					break
 				}
-				if conCreatedThisCycle > config.rampRate {
+				if conCreatedThisCycle >= config.rampRate {
 					break
 				}
 				if config.rpMode == "loader_multi" {
@@ -546,6 +547,7 @@ func runCM(config *Config, id int, ch chan string) {
 					//fmt.Println("Got:", randomIP)
 					sAddr = ip2int(net.ParseIP(randomIP))
 				}
+                                //fmt.Println("NewConn: ", id, sPort, dPort)
 				c := Connection{id: totalCreated,
 					thrId: id,
 					daddr: config.daddr,
@@ -576,7 +578,6 @@ func runCM(config *Config, id int, ch chan string) {
 
 				}
 				if c.connect() {
-                                        fmt.Println("New: ", sPort)
 					conns = append(conns, c)
 					totalCreated++
 					conCreatedThisCycle++
@@ -675,10 +676,23 @@ func main() {
 			runUDPServer(config)
 		}
 	} else {
+                extra := config.numConns - (config.numConnsCM * config.numCM)
+                fmt.Println("Extra=", extra)
+                needCreate := 0
+                portsSoFar := 0
 		for i:=0; i<config.numCM; i++ {
 			ch := make(chan string)
 			reportChans = append(reportChans, ch)
-			go runCM(config, i, reportChans[i])
+                        startSrcPort := config.sport + portsSoFar
+                        startDstPort := config.port + portsSoFar
+                        if extra > 0 {
+                                needCreate = config.numConnsCM + 1
+                                extra -= 1
+                        } else {
+                                needCreate = config.numConnsCM
+                        }
+                        portsSoFar += needCreate
+			go runCM(config, startSrcPort, startDstPort, needCreate, i, reportChans[i])
 		}
 		go reporter(reportChans)
 	}
