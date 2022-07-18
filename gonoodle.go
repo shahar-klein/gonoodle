@@ -503,13 +503,17 @@ func runCM(config *Config, id int, ch chan string) {
 		dPort = config.port + id*(config.numConnsCM)
 	}
 
+        secondStarted := time.Now()
         for { // This is the main load loop per thread(CM)
 		cycleOver := false
 		duration := time.Duration(config.cycleInMiliSec) * time.Millisecond
 		f := func() {
 			cycleOver = true
-			conCreatedThisCycle = 0
 			cyclesForReport += 1
+                        if time.Since(secondStarted) >= time.Duration(time.Second) {
+                               conCreatedThisCycle = 0
+                               secondStarted = time.Now()
+                        }
 		}
 		time.AfterFunc(duration, f)
 
@@ -572,6 +576,7 @@ func runCM(config *Config, id int, ch chan string) {
 
 				}
 				if c.connect() {
+                                        fmt.Println("New: ", sPort)
 					conns = append(conns, c)
 					totalCreated++
 					conCreatedThisCycle++
