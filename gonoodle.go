@@ -547,7 +547,7 @@ func runCM(config *Config, startSport, startDport, needToCreate, id int, ch chan
 					//fmt.Println("Got:", randomIP)
 					sAddr = ip2int(net.ParseIP(randomIP))
 				}
-                                //fmt.Println("NewConn: ", id, sPort, dPort)
+                                //fmt.Println("NewConn: ", time.Now(), id, sPort, dPort)
 				c := Connection{id: totalCreated,
 					thrId: id,
 					daddr: config.daddr,
@@ -692,6 +692,7 @@ func main() {
                                 needCreate = config.numConnsCM
                         }
                         portsSoFar += needCreate
+                        time.Sleep(time.Duration(200) * time.Millisecond)
 			go runCM(config, startSrcPort, startDstPort, needCreate, i, reportChans[i])
 		}
 		go reporter(reportChans)
