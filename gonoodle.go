@@ -99,6 +99,7 @@ type Config struct {
 	daddr		string
 	saddr		string
 	server		bool
+	trace		bool
 	socketMode	string
 	lPort		int
 	port		int
@@ -106,8 +107,9 @@ type Config struct {
 	numConns	int
 	numCM		int
 	numConnsCM	int // sessions per CM
-	rampRate	int // per CM
-	rampRatePerCycle int // per CM
+	rampRate	int
+	rampRateCM      int // per CM
+        rampFactor      int
 	bwPerConn	int
 	bwPerCycLo	int
 	bwPerCycHi	int
@@ -130,7 +132,7 @@ func (self *Config) dump() {
 		fmt.Println("Config:", strings.ToUpper(self.socketMode), "Server\nListen to:", self.port)
 	} else {
 		fmt.Println("Config:",  strings.ToUpper(self.socketMode), "client, Calling", self.daddr, "\b:" , self.port, "\nnum conns:", self.numConns,
-			"\nRamp:", self.rampRate, "\nrampRatePerCycle:", self.rampRatePerCycle, "\nBW per conn:", self.bwPerConn, "\nCycle in mili:", self.cycleInMiliSec, "\nBytes send per Cycle:", self.sendPerConPerCycle,  "\nmsg size:", self.msgSize, "\nsTime:", self.sessionTime,
+			"\nRamp:", self.rampRate, "\nrampRateCM:", self.rampRateCM, "\nrampFactor:", self.rampFactor, "\nBW per conn:", self.bwPerConn, "\nCycle in mili:", self.cycleInMiliSec, "\nBytes send per Cycle:", self.sendPerConPerCycle,  "\nmsg size:", self.msgSize, "\nsTime:", self.sessionTime,
 			"\nrpMode:", self.rpMode, "\nnumCM:", self.numCM, "\nnumConnsCM:", self.numConnsCM)
 	}
 }
@@ -165,6 +167,7 @@ func (self *Config) parse(args []string) {
 	l := parser.Int("l", "msg size", &argparse.Options{Help: "length(in bytes) of buffer in bytes to read or write", Default: 1440})
 	t := parser.Int("t", "time", &argparse.Options{Help: "time in seconds to transmit", Default: 10})
 	tos := parser.Int("", "tos", &argparse.Options{Help: "tos in Dec", Default: 0})
+	tr := parser.Flag("", "tr", &argparse.Options{Help: "trace mode", Default: false})
 	f := parser.Int("f", "frequency", &argparse.Options{Help: "frequency in msec. Sessions will transmit every f millisec.", Default: 100})
 	M := parser.Int("M", "cms", &argparse.Options{Help: "number of connection managers", Default: 0})
 	RP := parser.String("", "rp", &argparse.Options{Help: "RP mode <loader_multi|loader|initiator>, UDP only"})
@@ -217,6 +220,11 @@ func (self *Config) parse(args []string) {
 		self.server = true
 	}
 	self.daddr = *c
+
+        if *tr == true {
+                self.trace = true
+        }
+
 
 
 	self.socketMode = "tcp"
@@ -311,11 +319,14 @@ func (self *Config) parse(args []string) {
 	if self.rampRate > self.numConns {
 		self.rampRate = self.numConns
 	}
-	self.rampRate = self.rampRate/self.numCM
-	if self.rampRate < 1 {
-		self.rampRate = 1
+	self.rampRateCM = self.rampRate/self.numCM
+	if self.rampRateCM < 1 {
+		self.rampRateCM = 1
 	}
-	self.rampRatePerCycle = int(float64(self.rampRate)*self.cycleInMiliSec/1000)
+        self.rampFactor = self.numCM / self.rampRate
+        if self.rampFactor < 1 {
+                self.rampFactor = 1
+        }
 
 }
 
@@ -502,7 +513,6 @@ func runCM(config *Config, startSport, startDport, needToCreate, id int, ch chan
 	if config.rpMode != "" {
                 dPort = startDport
 	}
-
         secondStarted := time.Now()
         for { // This is the main load loop per thread(CM)
 		cycleOver := false
@@ -510,7 +520,7 @@ func runCM(config *Config, startSport, startDport, needToCreate, id int, ch chan
 		f := func() {
 			cycleOver = true
 			cyclesForReport += 1
-                        if time.Since(secondStarted) >= time.Duration(time.Second) {
+                        if time.Since(secondStarted) >= time.Duration(config.rampFactor) * time.Second {
                                conCreatedThisCycle = 0
                                secondStarted = time.Now()
                         }
@@ -535,11 +545,11 @@ func runCM(config *Config, startSport, startDport, needToCreate, id int, ch chan
 				conns[i].send()
 
 			}
-			for i:=0; i<config.rampRate; i++ {
+			for i:=0; i<config.rampRateCM; i++ {
 				if totalCreated >= needToCreate {
 					break
 				}
-				if conCreatedThisCycle >= config.rampRate {
+				if conCreatedThisCycle >= config.rampRateCM {
 					break
 				}
 				if config.rpMode == "loader_multi" {
@@ -547,7 +557,9 @@ func runCM(config *Config, startSport, startDport, needToCreate, id int, ch chan
 					//fmt.Println("Got:", randomIP)
 					sAddr = ip2int(net.ParseIP(randomIP))
 				}
-                                //fmt.Println("NewConn: ", time.Now(), id, sPort, dPort)
+                                if config.trace == true {
+                                        fmt.Println("NewConn: ", time.Now(), id, sPort, dPort)
+                                }
 				c := Connection{id: totalCreated,
 					thrId: id,
 					daddr: config.daddr,
@@ -680,6 +692,8 @@ func main() {
                 fmt.Println("Extra=", extra)
                 needCreate := 0
                 portsSoFar := 0
+                sleepFactor := 1000 / config.rampRate
+                fmt.Println("sleepFactor:", sleepFactor)
 		for i:=0; i<config.numCM; i++ {
 			ch := make(chan string)
 			reportChans = append(reportChans, ch)
@@ -692,7 +706,7 @@ func main() {
                                 needCreate = config.numConnsCM
                         }
                         portsSoFar += needCreate
-                        time.Sleep(time.Duration(200) * time.Millisecond)
+                        time.Sleep(time.Duration(sleepFactor) * time.Millisecond)
 			go runCM(config, startSrcPort, startDstPort, needCreate, i, reportChans[i])
 		}
 		go reporter(reportChans)
