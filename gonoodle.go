@@ -435,7 +435,6 @@ func (self *Connection) zero() {
 	}
 
 	self.byteSent  = 0
-        self.msgCount  = 1
 }
 
 func (self *Connection) waitForInitiator() {
@@ -478,7 +477,12 @@ func (self *Connection) send() {
                 if self.debugInc == true {
                         fmt.Println("Sending", self.msgCount, strconv.Itoa(self.msgCount))
                         s := fmt.Sprintf("This is msg No. %d", self.msgCount)
-		        self.conn.Write([]byte(s))
+                        sent, err := self.conn.Write([]byte(s))
+			if err != nil {
+				fmt.Println("Error sent:", self.id, err)
+			} else {
+				self.byteSent += sent
+			}
                         self.msgCount += 1
                 } else {
                         sent, err := self.conn.Write(*self.msg)
@@ -578,6 +582,7 @@ func runCM(config *Config, startSport, startDport, needToCreate, id int, ch chan
 					rpMode: config.rpMode,
                                         tosVal: config.tosVal,
                                         debugInc: config.debugInc,
+					msgCount: 1,
 					msg: &config.sendBuff}
 				if sPort != 0 {
 					sPort++
