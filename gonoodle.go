@@ -475,7 +475,7 @@ func (self *Connection) send() {
 
 	if self.byteSent < self.byteBWPerCycle && self.isActive == true && self.isReady == true {
                 if self.debugInc == true {
-                        fmt.Println("Sending", self.msgCount, strconv.Itoa(self.msgCount))
+                        //fmt.Println("Sending", self.msgCount, strconv.Itoa(self.msgCount))
                         s := fmt.Sprintf("This is msg No. %d", self.msgCount)
                         sent, err := self.conn.Write([]byte(s))
 			if err != nil {
