@@ -99,6 +99,7 @@ type Config struct {
 	daddr		string
 	saddr		string
 	server		bool
+        echo            bool
 	trace		bool
 	socketMode	string
 	lPort		int
@@ -155,6 +156,7 @@ func ReadInts(f string) ([]string, error) {
 func (self *Config) parse(args []string) {
 	parser := argparse.NewParser("Noodle", "iperf with goodies")
 	s := parser.Flag("s", "server", &argparse.Options{Help: "Server mode"})
+	e := parser.Flag("e", "echo", &argparse.Options{Help: "Server echo mode"})
 	c := parser.String("c", "client", &argparse.Options{Help: "<host> Client mode"})
 	u := parser.Flag("u", "udp", &argparse.Options{Help: "UDP mode", Default: false})
 	p := parser.Int("p", "port", &argparse.Options{Help: "port to listen on/connect to", Required: false, Default: 10005})
@@ -219,6 +221,11 @@ func (self *Config) parse(args []string) {
 	if *s == true {
 		self.server = true
 	}
+
+	if *e == true {
+		self.echo = true
+	}
+
 	self.daddr = *c
 
         if *tr == true {
@@ -611,6 +618,29 @@ type Server struct {
 	ch		chan net.Conn
 }
 
+func readEcho(s net.Conn) {
+    defer s.Close() // Ensure connection is closed when function exits
+
+    buf := make([]byte, 8*1024)
+    for {
+        read, err := s.Read(buf)
+        if err != nil {
+            fmt.Println("Error:", err)
+            break
+        }
+        if read == 0 {
+            break
+        }
+
+        _, writeErr := s.Write(buf[:read]) // Echo back the data
+        if writeErr != nil {
+            fmt.Println("Write Error:", writeErr)
+            break
+        }
+    }
+}
+
+
 func read(s net.Conn) {
 	var err error
 	read := 0
@@ -662,7 +692,11 @@ func runTCPServer(config *Config) {
 			os.Exit(1)
 		}
 		//fmt.Println(A, "Got connected from ", conn.RemoteAddr().String())
-		go read(conn)
+                if config.echo {
+                        go readEcho(conn)
+                } else {
+		        go read(conn)
+                }
 	}
 }
 
