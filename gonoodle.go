@@ -663,15 +663,31 @@ func read(s net.Conn) {
 func runUDPServer(config *Config) {
 	//net.ListenUDP(config.socketMode, &net.UDPAddr{IP:[]byte{0,0,0,0},Port:config.port,Zone:""})
 	//l, err := net.ListenUDP(config.socketMode, &net.UDPAddr{IP:[]byte{0,0,0,0},Port:config.port,Zone:""})
+        fmt.Println("UDP server")
 	l, err := net.ListenPacket(config.socketMode, ":"+strconv.Itoa(config.port))
-
-	defer l.Close()
-
 	if err != nil {
 		fmt.Println("Error UDP: ", err.Error())
 	}
-	for {
-	}
+
+	defer l.Close()
+        if config.echo {
+                buffer := make([]byte, 1024)
+                for {
+		       _, addr, err := l.ReadFrom(buffer)
+		       if err != nil {
+		               fmt.Println("Error reading from UDP:", err)
+			       continue
+		       }
+		       // Send back 1 byte of zero
+		       _, err = l.WriteTo([]byte{0x00}, addr)
+		       if err != nil {
+			       fmt.Println("Error sending response:", err)
+		       }
+                }
+        } else {
+                for {
+                }
+        }
 
 }
 
