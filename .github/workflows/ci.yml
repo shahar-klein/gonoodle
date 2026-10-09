@@ -1,0 +1,12 @@
+name: CI
+
+on: [push, pull_request]
+
+permissions: {}
+
+jobs:
+  placeholder:
+    name: Placeholder (no tests)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CI placeholder — no build or tests performed."
